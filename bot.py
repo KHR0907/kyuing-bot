@@ -54,6 +54,26 @@ async def refresh_dashboard_owner_ids():
     log.info("대시보드 관리자 ID {}", sorted(owner_ids))
 
 
+async def disconnect_if_voice_channel_empty(guild: discord.Guild):
+    vc = guild.voice_client
+    if vc is None or vc.channel is None:
+        return
+
+    human_members = [member for member in vc.channel.members if not member.bot]
+    if human_members:
+        return
+
+    channel_name = vc.channel.name
+    channel_id = vc.channel.id
+    await vc.disconnect()
+    log.info(
+        "음성 채널 자동 퇴장 guild_id={} channel_id={} channel_name={}",
+        guild.id,
+        channel_id,
+        channel_name,
+    )
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild:
@@ -80,6 +100,21 @@ async def on_message(message):
             await message.reply(error)
 
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.guild.voice_client is None:
+        return
+
+    watched_channel_id = member.guild.voice_client.channel.id if member.guild.voice_client.channel else None
+    if watched_channel_id is None:
+        return
+
+    if before.channel and before.channel.id == watched_channel_id:
+        await disconnect_if_voice_channel_empty(member.guild)
+    elif after.channel and after.channel.id == watched_channel_id:
+        await disconnect_if_voice_channel_empty(member.guild)
 
 
 @bot.event
