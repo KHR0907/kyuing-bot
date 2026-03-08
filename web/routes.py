@@ -104,6 +104,18 @@ def register_routes(app):
             for item in guild_keyword_aliases
         ]
 
+        guild_keywords_grouped = {}
+        for entry in guild_keyword_entries:
+            gid = entry["guild_id"]
+            if gid not in guild_keywords_grouped:
+                guild_keywords_grouped[gid] = {
+                    "guild_id": gid,
+                    "guild_name": entry["guild_name"],
+                    "items": [],
+                }
+            guild_keywords_grouped[gid]["items"].append(entry)
+        guild_keywords_by_guild = list(guild_keywords_grouped.values())
+
         return await render_template(
             "dashboard.html",
             metrics=metrics,
@@ -111,6 +123,7 @@ def register_routes(app):
             admin_entries=admin_entries,
             global_keyword_aliases=global_keyword_aliases,
             guild_keyword_aliases=guild_keyword_entries,
+            guild_keywords_by_guild=guild_keywords_by_guild,
             viewer_is_super_admin=viewer_is_super_admin,
             active_section=section,
             notice=pop_notice(),
