@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}운영 대시보드 - TTS Bot{% endblock %}
+{% block content %}
+<section class="mb-8">
+    <p class="text-sm uppercase tracking-[0.3em] text-cyan-300">Monitoring</p>
+    <h1 class="mt-2 text-3xl font-semibold text-white">운영 대시보드</h1>
+    <p class="mt-2 text-sm text-slate-400">대시보드는 현황 확인 전용입니다. 봇 동작 변경은 디스코드 슬래시 커맨드에서 처리합니다.</p>
+</section>
+
+<section class="grid gap-4 md:grid-cols-3">
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-sm text-slate-400">서버 수</p>
+        <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.guild_count }}</p>
+        <p class="mt-2 text-sm {% if metrics.guild_delta > 0 %}text-emerald-400{% elif metrics.guild_delta < 0 %}text-rose-400{% else %}text-slate-500{% endif %}">
+            어제 대비 {% if metrics.guild_delta > 0 %}+{% endif %}{{ metrics.guild_delta }}
+        </p>
+    </article>
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-sm text-slate-400">활성 TTS 채널</p>
+        <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.active_channel_count }}</p>
+        <p class="mt-2 text-sm {% if metrics.active_channel_delta > 0 %}text-emerald-400{% elif metrics.active_channel_delta < 0 %}text-rose-400{% else %}text-slate-500{% endif %}">
+            어제 대비 {% if metrics.active_channel_delta > 0 %}+{% endif %}{{ metrics.active_channel_delta }}
+        </p>
+    </article>
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-sm text-slate-400">오늘 요청 수</p>
+        <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.daily_requests }}</p>
+        <p class="mt-2 text-sm text-slate-500">어제 {{ metrics.daily_requests_yesterday }}건</p>
+    </article>
+</section>
+
+<section class="mt-8 grid gap-6 xl:grid-cols-[1.6fr,1fr]">
+    <article class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
+        <div class="border-b border-slate-800 px-5 py-4">
+            <h2 class="text-lg font-semibold text-white">서버 목록</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead class="bg-slate-900 text-slate-400">
+                    <tr>
+                        <th class="px-5 py-3 text-left font-medium">서버</th>
+                        <th class="px-5 py-3 text-left font-medium">멤버</th>
+                        <th class="px-5 py-3 text-left font-medium">활성 채널</th>
+                        <th class="px-5 py-3 text-left font-medium">음성 상태</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                    {% for guild in guilds %}
+                    <tr class="transition hover:bg-slate-800/60">
+                        <td class="px-5 py-4">
+                            <div class="flex items-center gap-3">
+                                {% if guild.icon_url %}
+                                <img src="{{ guild.icon_url }}" alt="" class="h-10 w-10 rounded-full border border-slate-700 object-cover">
+                                {% else %}
+                                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-cyan-300">
+                                    {{ guild.name[0] }}
+                                </div>
+                                {% endif %}
+                                <div>
+                                    <div class="font-medium text-white">{{ guild.name }}</div>
+                                    <div class="text-xs text-slate-500">{{ guild.id }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-5 py-4 text-slate-300">{{ guild.member_count }}</td>
+                        <td class="px-5 py-4 text-slate-300">{{ guild.active_channels }}</td>
+                        <td class="px-5 py-4 text-slate-300">{{ guild.voice_status }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not guilds %}
+                    <tr>
+                        <td colspan="4" class="px-5 py-6 text-center text-slate-500">봇이 참여 중인 서버가 없습니다.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
+        <div class="border-b border-slate-800 px-5 py-4">
+            <h2 class="text-lg font-semibold text-white">최근 7일 요청</h2>
+        </div>
+        <div class="space-y-3 p-5">
+            {% for day in metrics.recent_requests %}
+            <div>
+                <div class="mb-2 flex items-center justify-between text-sm">
+                    <span class="text-slate-400">{{ day.label }}</span>
+                    <span class="font-medium text-white">{{ day.tts_requests }}건</span>
+                </div>
+                <div class="h-2 overflow-hidden rounded-full bg-slate-800">
+                    <div class="h-full rounded-full bg-cyan-400" style="width: {{ day.bar_width }}%"></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

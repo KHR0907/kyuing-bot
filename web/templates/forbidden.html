@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>접근 거부 - TTS Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 text-center">
+            <p class="mb-3 text-sm uppercase tracking-[0.3em] text-rose-400">Access Denied</p>
+            <h1 class="mb-3 text-3xl font-bold">대시보드 접근 불가</h1>
+            <p class="mb-2 text-slate-300">{{ user.username }} 계정은 이 대시보드에 접근할 수 없습니다.</p>
+            <p class="text-sm text-slate-500">대시보드는 봇 개발자 전용입니다.</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 완료 - TTS Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.addEventListener("load", () => {
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 600);
+        });
+    </script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 text-center">
+            <p class="mb-3 text-sm uppercase tracking-[0.3em] text-emerald-400">Login Complete</p>
+            <h1 class="mb-3 text-3xl font-bold">인증 성공</h1>
+            <p class="mb-2 text-slate-300">{{ user.username }} 계정으로 로그인되었습니다.</p>
+            <p class="mb-6 text-sm text-slate-500">잠시 후 대시보드로 이동합니다.</p>
+            <a href="/" class="inline-block rounded-xl bg-cyan-500 px-6 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
+                대시보드로 이동
+            </a>
+        </div>
+    </div>
+</body>
+</html>
