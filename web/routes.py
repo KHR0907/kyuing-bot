@@ -110,7 +110,8 @@ def register_routes(app):
 
         user_id = int(raw_user_id)
         existing_admin_ids = await database.get_dashboard_admin_ids()
-        if user_id in DASHBOARD_ADMIN_IDS or user_id in existing_admin_ids:
+        owner_ids = await get_dashboard_owner_ids(current_app.bot)
+        if user_id in owner_ids or user_id in existing_admin_ids:
             set_notice(f"{user_id} 는 이미 관리자입니다.", "error")
             return redirect(url_for("index"))
 
@@ -126,6 +127,14 @@ def register_routes(app):
     @app.route("/admins/<int:user_id>/delete", methods=["POST"])
     @login_required
     async def delete_admin(user_id: int):
+        protected_admin_ids = await get_dashboard_owner_ids(current_app.bot)
+        if user_id in DASHBOARD_ADMIN_IDS or user_id == getattr(current_app.bot, "application_owner_id", None):
+            set_notice("슈퍼 어드민과 봇 owner는 삭제할 수 없습니다.", "error")
+            return redirect(url_for("index"))
+        if user_id in protected_admin_ids and user_id not in await database.get_dashboard_admin_ids():
+            set_notice("삭제 가능한 수동 추가 관리자만 제거할 수 있습니다.", "error")
+            return redirect(url_for("index"))
+
         removed = await database.remove_dashboard_admin(user_id)
         if not removed:
             set_notice("삭제 가능한 수동 추가 관리자만 제거할 수 있습니다.", "error")
