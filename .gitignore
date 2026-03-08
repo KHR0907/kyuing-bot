@@ -6,3 +6,4 @@ tts_channels.json
 data/
 *.db
 venv/
+.claude/
