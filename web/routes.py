@@ -12,6 +12,15 @@ def register_routes(app):
     def set_notice(message: str, level: str = "info"):
         session["dashboard_notice"] = {"message": message, "level": level}
 
+    async def resolve_user_label(bot, user_id: int) -> str:
+        user = bot.get_user(user_id)
+        if user is None:
+            try:
+                user = await bot.fetch_user(user_id)
+            except Exception:
+                return "알 수 없는 사용자"
+        return f"{user.name}#{user.discriminator}" if user.discriminator != "0" else user.name
+
     @app.route("/")
     async def index():
         user_id = session.get("user_id")
@@ -27,6 +36,7 @@ def register_routes(app):
         metrics = await database.get_dashboard_metrics(guild_count, active_channel_count)
         channel_counts = await database.get_tts_channel_counts_by_guild()
         stored_admin_ids = set(await database.get_dashboard_admin_ids())
+        viewer_is_super_admin = int(user_id) in DASHBOARD_ADMIN_IDS
         all_admin_ids = set(stored_admin_ids)
         all_admin_ids.update(DASHBOARD_ADMIN_IDS)
         all_admin_ids.update(getattr(bot, "dashboard_owner_ids", set()))
@@ -49,6 +59,7 @@ def register_routes(app):
             admin_entries.append(
                 {
                     "user_id": admin_id,
+                    "display_name": await resolve_user_label(bot, admin_id),
                     "source": source,
                     "source_label": source_label,
                     "removable": removable,
@@ -75,6 +86,7 @@ def register_routes(app):
             metrics=metrics,
             guilds=guilds,
             admin_entries=admin_entries,
+            viewer_is_super_admin=viewer_is_super_admin,
             notice=pop_notice(),
         )
 

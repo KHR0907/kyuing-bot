@@ -113,8 +113,23 @@
             {% for admin in admin_entries %}
             <div class="flex items-center justify-between gap-4 px-5 py-4">
                 <div>
-                    <div class="font-medium text-white">{{ admin.user_id }}{% if admin.is_current_user %} <span class="text-cyan-300">(현재 로그인)</span>{% endif %}</div>
-                    <div class="text-xs uppercase tracking-[0.25em] {% if admin.source == 'owner' %}text-amber-300{% elif admin.source == 'super_admin' %}text-slate-400{% else %}text-emerald-300{% endif %}">
+                    <div class="flex items-center gap-2 font-medium text-white">
+                        <span>{{ admin.display_name }}</span>
+                        {% if admin.is_current_user %}
+                        <span class="text-cyan-300">(현재 로그인)</span>
+                        {% endif %}
+                        {% if viewer_is_super_admin %}
+                        <button
+                            type="button"
+                            class="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-cyan-400 hover:text-cyan-300"
+                            onclick="const el=this.nextElementSibling; el.classList.toggle('hidden');"
+                        >
+                            ID
+                        </button>
+                        <span class="hidden rounded-md bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-400">{{ admin.user_id }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 text-xs uppercase tracking-[0.25em] {% if admin.source == 'owner' %}text-amber-300{% elif admin.source == 'super_admin' %}text-slate-400{% else %}text-emerald-300{% endif %}">
                         {{ admin.source_label }}
                     </div>
                 </div>
