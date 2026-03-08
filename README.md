@@ -23,7 +23,7 @@ docker compose logs -f app
 DISCORD_TOKEN=your_discord_bot_token_here
 DISCORD_CLIENT_ID=your_discord_client_id_here
 DISCORD_CLIENT_SECRET=your_discord_client_secret_here
-DISCORD_REDIRECT_URI=https://your-domain.com/callback
+DISCORD_REDIRECT_URI=https://kyuing-bot.shuding.dev/callback
 WEB_SECRET_KEY=replace-with-a-long-random-secret
 WEB_PORT=8080
 DATABASE_PATH=data/bot.db
@@ -75,13 +75,13 @@ Certbot example:
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d kyuing-bot.shuding.dev
 ```
 
 After HTTPS is enabled, set:
 
 ```env
-DISCORD_REDIRECT_URI=https://your-domain.com/callback
+DISCORD_REDIRECT_URI=https://kyuing-bot.shuding.dev/callback
 SESSION_COOKIE_SECURE=true
 ```
 
