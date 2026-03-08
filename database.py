@@ -6,14 +6,13 @@ from zoneinfo import ZoneInfo
 import aiosqlite
 from loguru import logger as log
 
-from config import DATABASE_PATH, DEFAULT_USER_SETTINGS
+from config import DAILY_STATS_RETENTION_DAYS, DATABASE_PATH, DEFAULT_USER_SETTINGS
 
 _db: aiosqlite.Connection | None = None
 
 # on_message 성능을 위한 메모리 캐시
 _tts_channels_cache: dict[int, list[int]] = {}
 KST = ZoneInfo("Asia/Seoul")
-DAILY_STATS_RETENTION_DAYS = 30
 
 
 def _day_key(target_day: date | None = None) -> str:

@@ -27,6 +27,11 @@ SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 
 # Database
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/bot.db")
+DAILY_STATS_RETENTION_DAYS = int(os.getenv("DAILY_STATS_RETENTION_DAYS", "365"))
+
+# Logging
+LOG_PATH = os.getenv("LOG_PATH", "logs/app.log")
+LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
 
 # TTS 보이스 & 언어
 VOICES = {

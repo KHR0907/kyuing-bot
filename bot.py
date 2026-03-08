@@ -16,6 +16,10 @@ from discord.ext import commands
 from loguru import logger as log
 
 import config
+from logging_setup import configure_logging
+
+configure_logging()
+
 import database
 import tts_engine
 from web.app import create_app

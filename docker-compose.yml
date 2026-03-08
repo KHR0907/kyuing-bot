@@ -11,3 +11,4 @@ services:
       - "${WEB_PORT:-5001}:${WEB_PORT:-5001}"
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs

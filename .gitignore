@@ -5,5 +5,6 @@ __pycache__/
 tts_channels.json
 data/
 *.db
+logs/
 venv/
 .claude/

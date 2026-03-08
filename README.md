@@ -27,6 +27,9 @@ DISCORD_REDIRECT_URI=https://kyuing-bot.shuding.dev/callback
 WEB_SECRET_KEY=replace-with-a-long-random-secret
 WEB_PORT=5001
 DATABASE_PATH=data/bot.db
+DAILY_STATS_RETENTION_DAYS=365
+LOG_PATH=logs/app.log
+LOG_RETENTION_DAYS=30
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=Lax
 ```
@@ -50,6 +53,7 @@ git clone <repo-url>
 cd kyuing-bot
 cp .env.example .env
 mkdir -p data
+mkdir -p logs
 docker compose up -d --build
 ```
 
@@ -111,3 +115,6 @@ Logs:
 ```bash
 docker compose logs -f app
 ```
+
+Application log files are written to `logs/app.log` and retained for 30 days.
+Daily dashboard stats are retained for 365 days.
