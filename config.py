@@ -17,11 +17,11 @@ DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 # OAuth2 (웹 대시보드)
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
-DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:8080/callback")
+DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:5001/callback")
 
 # Web
 WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "change-me-in-production")
-WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+WEB_PORT = int(os.getenv("WEB_PORT", "5001"))
 SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", False)
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 

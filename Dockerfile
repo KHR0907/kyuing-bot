@@ -23,6 +23,6 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
 
 USER appuser
 
-EXPOSE 8080
+EXPOSE 5001
 
 CMD ["python", "bot.py"]
