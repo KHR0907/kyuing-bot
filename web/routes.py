@@ -6,6 +6,8 @@ from web.app import get_dashboard_owner_ids, is_dashboard_owner, login_required
 
 
 def register_routes(app):
+    valid_sections = {"overview", "admins", "keywords"}
+
     def pop_notice():
         return session.pop("dashboard_notice", None)
 
@@ -23,6 +25,10 @@ def register_routes(app):
 
     @app.route("/")
     async def index():
+        section = (request.args.get("section") or "overview").strip().lower()
+        if section not in valid_sections:
+            section = "overview"
+
         user_id = session.get("user_id")
         if not user_id:
             return await render_template("login.html")
@@ -35,6 +41,8 @@ def register_routes(app):
         active_channel_count = await database.get_total_tts_channel_count()
         metrics = await database.get_dashboard_metrics(guild_count, active_channel_count)
         channel_counts = await database.get_tts_channel_counts_by_guild()
+        global_keyword_aliases = await database.get_global_keyword_aliases()
+        guild_keyword_aliases = await database.get_guild_keyword_aliases()
         stored_admin_ids = set(await database.get_dashboard_admin_ids())
         viewer_is_super_admin = int(user_id) in DASHBOARD_ADMIN_IDS
         all_admin_ids = set(stored_admin_ids)
@@ -85,12 +93,26 @@ def register_routes(app):
                 }
             )
 
+        guild_name_map = {guild["id"]: guild["name"] for guild in guilds}
+        guild_keyword_entries = [
+            {
+                "guild_id": item["guild_id"],
+                "guild_name": guild_name_map.get(item["guild_id"], f"Unknown Guild ({item['guild_id']})"),
+                "keyword": item["keyword"],
+                "replacement": item["replacement"],
+            }
+            for item in guild_keyword_aliases
+        ]
+
         return await render_template(
             "dashboard.html",
             metrics=metrics,
             guilds=guilds,
             admin_entries=admin_entries,
+            global_keyword_aliases=global_keyword_aliases,
+            guild_keyword_aliases=guild_keyword_entries,
             viewer_is_super_admin=viewer_is_super_admin,
+            active_section=section,
             notice=pop_notice(),
         )
 
@@ -106,23 +128,23 @@ def register_routes(app):
         raw_user_id = (form.get("user_id") or "").strip()
         if not raw_user_id.isdigit():
             set_notice("관리자 ID는 숫자만 입력해야 합니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
 
         user_id = int(raw_user_id)
         existing_admin_ids = await database.get_dashboard_admin_ids()
         owner_ids = await get_dashboard_owner_ids(current_app.bot)
         if user_id in owner_ids or user_id in existing_admin_ids:
             set_notice(f"{user_id} 는 이미 관리자입니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
 
         added = await database.add_dashboard_admin(user_id)
         if not added:
             set_notice(f"{user_id} 관리자 추가에 실패했습니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
 
         current_app.bot.dashboard_owner_ids = await get_dashboard_owner_ids(current_app.bot)
         set_notice(f"{user_id} 관리자를 추가했습니다.", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("index", section="admins"))
 
     @app.route("/admins/<int:user_id>/delete", methods=["POST"])
     @login_required
@@ -130,16 +152,85 @@ def register_routes(app):
         protected_admin_ids = await get_dashboard_owner_ids(current_app.bot)
         if user_id in DASHBOARD_ADMIN_IDS or user_id == getattr(current_app.bot, "application_owner_id", None):
             set_notice("슈퍼 어드민과 봇 owner는 삭제할 수 없습니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
         if user_id in protected_admin_ids and user_id not in await database.get_dashboard_admin_ids():
             set_notice("삭제 가능한 수동 추가 관리자만 제거할 수 있습니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
 
         removed = await database.remove_dashboard_admin(user_id)
         if not removed:
             set_notice("삭제 가능한 수동 추가 관리자만 제거할 수 있습니다.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("index", section="admins"))
 
         current_app.bot.dashboard_owner_ids = await get_dashboard_owner_ids(current_app.bot)
         set_notice(f"{user_id} 관리자를 삭제했습니다.", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("index", section="admins"))
+
+    @app.route("/keyword-aliases/global", methods=["POST"])
+    @login_required
+    async def add_global_keyword_alias():
+        form = await request.form
+        keyword = (form.get("keyword") or "").strip()
+        replacement = (form.get("replacement") or "").strip()
+
+        if not keyword or not replacement:
+            set_notice("전역 키워드와 치환 문장을 모두 입력해야 합니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        added = await database.add_global_keyword_alias(keyword, replacement)
+        if not added:
+            set_notice(f"전역 키워드 `{keyword}` 는 이미 등록되어 있습니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        set_notice(f"전역 키워드 `{keyword}` 를 추가했습니다.", "success")
+        return redirect(url_for("index", section="keywords"))
+
+    @app.route("/keyword-aliases/global/<path:keyword>/delete", methods=["POST"])
+    @login_required
+    async def delete_global_keyword_alias(keyword: str):
+        removed = await database.remove_global_keyword_alias(keyword)
+        if not removed:
+            set_notice("삭제할 전역 키워드를 찾을 수 없습니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        set_notice(f"전역 키워드 `{keyword}` 를 삭제했습니다.", "success")
+        return redirect(url_for("index", section="keywords"))
+
+    @app.route("/keyword-aliases/guild", methods=["POST"])
+    @login_required
+    async def add_guild_keyword_alias():
+        form = await request.form
+        raw_guild_id = (form.get("guild_id") or "").strip()
+        keyword = (form.get("keyword") or "").strip()
+        replacement = (form.get("replacement") or "").strip()
+
+        if not raw_guild_id.isdigit():
+            set_notice("서버를 선택해야 합니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+        if not keyword or not replacement:
+            set_notice("서버 키워드와 치환 문장을 모두 입력해야 합니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        guild_id = int(raw_guild_id)
+        if current_app.bot.get_guild(guild_id) is None:
+            set_notice("선택한 서버를 찾을 수 없습니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        added = await database.add_guild_keyword_alias(guild_id, keyword, replacement)
+        if not added:
+            set_notice(f"이 서버에는 `{keyword}` 키워드가 이미 등록되어 있습니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        set_notice(f"서버 키워드 `{keyword}` 를 추가했습니다.", "success")
+        return redirect(url_for("index", section="keywords"))
+
+    @app.route("/keyword-aliases/guild/<int:guild_id>/<path:keyword>/delete", methods=["POST"])
+    @login_required
+    async def delete_guild_keyword_alias(guild_id: int, keyword: str):
+        removed = await database.remove_guild_keyword_alias(guild_id, keyword)
+        if not removed:
+            set_notice("삭제할 서버 키워드를 찾을 수 없습니다.", "error")
+            return redirect(url_for("index", section="keywords"))
+
+        set_notice(f"서버 키워드 `{keyword}` 를 삭제했습니다.", "success")
+        return redirect(url_for("index", section="keywords"))

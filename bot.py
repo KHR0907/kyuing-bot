@@ -86,6 +86,19 @@ async def on_message(message):
         if not text or text.startswith("/"):
             return
 
+        replaced_text, replacement_scope = database.resolve_keyword_replacement(message.guild.id, text)
+        if replacement_scope:
+            log.info(
+                "TTS 키워드 치환 scope={} guild_id={} channel_id={} user_id={} keyword={} replacement={}",
+                replacement_scope,
+                message.guild.id,
+                message.channel.id,
+                message.author.id,
+                text,
+                replaced_text,
+            )
+            text = replaced_text
+
         if not message.author.voice or not message.author.voice.channel:
             await message.reply("먼저 음성 채널에 접속해주세요!")
             return

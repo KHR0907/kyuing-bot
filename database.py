@@ -12,6 +12,8 @@ _db: aiosqlite.Connection | None = None
 
 # on_message 성능을 위한 메모리 캐시
 _tts_channels_cache: dict[int, list[int]] = {}
+_global_keyword_cache: dict[str, str] = {}
+_guild_keyword_cache: dict[int, dict[str, str]] = {}
 KST = ZoneInfo("Asia/Seoul")
 
 
@@ -59,6 +61,22 @@ async def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS global_keyword_aliases (
+            keyword TEXT PRIMARY KEY,
+            replacement TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS guild_keyword_aliases (
+            guild_id INTEGER NOT NULL,
+            keyword TEXT NOT NULL,
+            replacement TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, keyword)
+        )
+    """)
     await _db.commit()
     await purge_old_daily_stats()
 
@@ -79,11 +97,21 @@ async def close_db():
 
 
 async def _refresh_cache():
-    global _tts_channels_cache
+    global _tts_channels_cache, _global_keyword_cache, _guild_keyword_cache
     _tts_channels_cache = {}
     async with _db.execute("SELECT guild_id, channel_id FROM tts_channels") as cursor:
         async for row in cursor:
             _tts_channels_cache.setdefault(row[0], []).append(row[1])
+
+    _global_keyword_cache = {}
+    async with _db.execute("SELECT keyword, replacement FROM global_keyword_aliases") as cursor:
+        async for row in cursor:
+            _global_keyword_cache[row[0]] = row[1]
+
+    _guild_keyword_cache = {}
+    async with _db.execute("SELECT guild_id, keyword, replacement FROM guild_keyword_aliases") as cursor:
+        async for row in cursor:
+            _guild_keyword_cache.setdefault(row[0], {})[row[1]] = row[2]
 
 
 async def _migrate_from_json():
@@ -191,6 +219,98 @@ async def remove_dashboard_admin(user_id: int) -> bool:
     )
     await _db.commit()
     return cursor.rowcount > 0
+
+
+def resolve_keyword_replacement(guild_id: int, text: str) -> tuple[str, str | None]:
+    guild_replacements = _guild_keyword_cache.get(guild_id, {})
+    if text in guild_replacements:
+        return guild_replacements[text], "guild"
+
+    if text in _global_keyword_cache:
+        return _global_keyword_cache[text], "global"
+
+    return text, None
+
+
+async def get_global_keyword_aliases() -> list[dict]:
+    async with _db.execute(
+        """
+        SELECT keyword, replacement
+        FROM global_keyword_aliases
+        ORDER BY created_at ASC, keyword ASC
+        """
+    ) as cursor:
+        return [
+            {"keyword": row[0], "replacement": row[1]}
+            async for row in cursor
+        ]
+
+
+async def add_global_keyword_alias(keyword: str, replacement: str) -> bool:
+    try:
+        await _db.execute(
+            "INSERT INTO global_keyword_aliases (keyword, replacement) VALUES (?, ?)",
+            (keyword, replacement),
+        )
+        await _db.commit()
+        _global_keyword_cache[keyword] = replacement
+        return True
+    except aiosqlite.IntegrityError:
+        return False
+
+
+async def remove_global_keyword_alias(keyword: str) -> bool:
+    cursor = await _db.execute(
+        "DELETE FROM global_keyword_aliases WHERE keyword = ?",
+        (keyword,),
+    )
+    await _db.commit()
+    if cursor.rowcount > 0:
+        _global_keyword_cache.pop(keyword, None)
+        return True
+    return False
+
+
+async def get_guild_keyword_aliases() -> list[dict]:
+    async with _db.execute(
+        """
+        SELECT guild_id, keyword, replacement
+        FROM guild_keyword_aliases
+        ORDER BY guild_id ASC, created_at ASC, keyword ASC
+        """
+    ) as cursor:
+        return [
+            {"guild_id": row[0], "keyword": row[1], "replacement": row[2]}
+            async for row in cursor
+        ]
+
+
+async def add_guild_keyword_alias(guild_id: int, keyword: str, replacement: str) -> bool:
+    try:
+        await _db.execute(
+            "INSERT INTO guild_keyword_aliases (guild_id, keyword, replacement) VALUES (?, ?, ?)",
+            (guild_id, keyword, replacement),
+        )
+        await _db.commit()
+        _guild_keyword_cache.setdefault(guild_id, {})[keyword] = replacement
+        return True
+    except aiosqlite.IntegrityError:
+        return False
+
+
+async def remove_guild_keyword_alias(guild_id: int, keyword: str) -> bool:
+    cursor = await _db.execute(
+        "DELETE FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
+        (guild_id, keyword),
+    )
+    await _db.commit()
+    if cursor.rowcount > 0:
+        guild_aliases = _guild_keyword_cache.get(guild_id, {})
+        guild_aliases.pop(keyword, None)
+        if not guild_aliases and guild_id in _guild_keyword_cache:
+            _guild_keyword_cache.pop(guild_id, None)
+        return True
+    return False
 
 
 async def purge_old_daily_stats(reference_day: date | None = None):
