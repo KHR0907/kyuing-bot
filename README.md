@@ -23,7 +23,7 @@ docker compose logs -f app
 DISCORD_TOKEN=your_discord_bot_token_here
 DISCORD_CLIENT_ID=your_discord_client_id_here
 DISCORD_CLIENT_SECRET=your_discord_client_secret_here
-DISCORD_REDIRECT_URI=https://kyuing-bot.shuding.dev/callback
+DISCORD_REDIRECT_URI=https://your-domain.example/callback
 WEB_SECRET_KEY=replace-with-a-long-random-secret
 WEB_PORT=5001
 DATABASE_PATH=data/bot.db
@@ -59,13 +59,32 @@ docker compose up -d --build
 
 ### 3. Reverse proxy with Nginx
 
-Use `deploy/nginx/kyuing-bot.conf` as a template.
-
 Ubuntu example:
 
 ```bash
 sudo apt install -y nginx
-sudo cp deploy/nginx/kyuing-bot.conf /etc/nginx/sites-available/kyuing-bot
+sudo nano /etc/nginx/sites-available/kyuing-bot
+```
+
+Example config:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.example;
+
+    location / {
+        proxy_pass http://127.0.0.1:5001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
 sudo ln -s /etc/nginx/sites-available/kyuing-bot /etc/nginx/sites-enabled/kyuing-bot
 sudo nginx -t
 sudo systemctl reload nginx
@@ -79,13 +98,13 @@ Certbot example:
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d kyuing-bot.shuding.dev
+sudo certbot --nginx -d your-domain.example
 ```
 
 After HTTPS is enabled, set:
 
 ```env
-DISCORD_REDIRECT_URI=https://kyuing-bot.shuding.dev/callback
+DISCORD_REDIRECT_URI=https://your-domain.example/callback
 SESSION_COOKIE_SECURE=true
 ```
 
