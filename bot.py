@@ -46,6 +46,7 @@ async def refresh_dashboard_owner_ids():
     try:
         app_info = await bot.application_info()
         if getattr(app_info, "owner", None):
+            bot.application_owner_id = app_info.owner.id
             owner_ids.add(app_info.owner.id)
     except Exception as e:
         log.warning("대시보드 소유자 조회 실패: {}", e)

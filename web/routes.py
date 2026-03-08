@@ -42,8 +42,12 @@ def register_routes(app):
         all_admin_ids.update(getattr(bot, "dashboard_owner_ids", set()))
 
         admin_entries = []
-        app_info = await bot.application_info()
-        owner_id = app_info.owner.id if getattr(app_info, "owner", None) else None
+        owner_id = getattr(bot, "application_owner_id", None)
+        if owner_id is None:
+            app_info = await bot.application_info()
+            owner_id = app_info.owner.id if getattr(app_info, "owner", None) else None
+            if owner_id is not None:
+                bot.application_owner_id = owner_id
         for admin_id in sorted(int(admin_id) for admin_id in all_admin_ids):
             source = "admin"
             source_label = "대시보드 관리자"

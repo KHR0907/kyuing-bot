@@ -23,17 +23,22 @@ OAUTH2_URL = "https://discord.com/oauth2/authorize"
 async def get_dashboard_owner_ids(bot) -> set[int]:
     owner_ids = set(DASHBOARD_ADMIN_IDS)
     owner_ids.update(await database.get_dashboard_admin_ids())
-    owner_ids.update(int(owner_id) for owner_id in getattr(bot, "dashboard_owner_ids", set()) if owner_id)
-    if owner_ids:
+
+    application_owner_id = getattr(bot, "application_owner_id", None)
+    if application_owner_id:
+        owner_ids.add(int(application_owner_id))
+        bot.dashboard_owner_ids = owner_ids
         return owner_ids
 
     try:
         app_info = await bot.application_info()
     except Exception as e:
         log.warning("대시보드 소유자 조회 실패: {}", e)
+        bot.dashboard_owner_ids = owner_ids
         return owner_ids
 
     if getattr(app_info, "owner", None):
+        bot.application_owner_id = app_info.owner.id
         owner_ids.add(app_info.owner.id)
 
     bot.dashboard_owner_ids = owner_ids
