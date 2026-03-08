@@ -4,8 +4,14 @@
 <section class="mb-8">
     <p class="text-sm uppercase tracking-[0.3em] text-cyan-300">Monitoring</p>
     <h1 class="mt-2 text-3xl font-semibold text-white">운영 대시보드</h1>
-    <p class="mt-2 text-sm text-slate-400">대시보드는 현황 확인 전용입니다. 봇 동작 변경은 디스코드 슬래시 커맨드에서 처리합니다.</p>
+    <p class="mt-2 text-sm text-slate-400">운영 현황과 대시보드 관리자 권한을 여기서 관리합니다. 봇 채널 설정은 디스코드 슬래시 커맨드에서 처리합니다.</p>
 </section>
+
+{% if notice %}
+<section class="mb-6 rounded-2xl border px-5 py-4 {% if notice.level == 'success' %}border-emerald-500/30 bg-emerald-500/10 text-emerald-200{% elif notice.level == 'error' %}border-rose-500/30 bg-rose-500/10 text-rose-200{% else %}border-slate-700 bg-slate-900/80 text-slate-200{% endif %}">
+    {{ notice.message }}
+</section>
+{% endif %}
 
 <section class="grid gap-4 md:grid-cols-3">
     <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
@@ -94,6 +100,60 @@
             </div>
             {% endfor %}
         </div>
+    </article>
+</section>
+
+<section class="mt-8 grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
+        <div class="border-b border-slate-800 px-5 py-4">
+            <h2 class="text-lg font-semibold text-white">대시보드 관리자</h2>
+            <p class="mt-1 text-sm text-slate-500">슈퍼 어드민과 봇 owner는 읽기 전용입니다. 여기서 추가한 대시보드 관리자만 삭제할 수 있습니다.</p>
+        </div>
+        <div class="divide-y divide-slate-800">
+            {% for admin in admin_entries %}
+            <div class="flex items-center justify-between gap-4 px-5 py-4">
+                <div>
+                    <div class="font-medium text-white">{{ admin.user_id }}{% if admin.is_current_user %} <span class="text-cyan-300">(현재 로그인)</span>{% endif %}</div>
+                    <div class="text-xs uppercase tracking-[0.25em] {% if admin.source == 'owner' %}text-amber-300{% elif admin.source == 'super_admin' %}text-slate-400{% else %}text-emerald-300{% endif %}">
+                        {{ admin.source_label }}
+                    </div>
+                </div>
+                {% if admin.removable %}
+                <form method="post" action="/admins/{{ admin.user_id }}/delete">
+                    <button type="submit" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20">
+                        삭제
+                    </button>
+                </form>
+                {% else %}
+                <span class="text-xs text-slate-500">삭제 불가</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
+        <div class="border-b border-slate-800 px-5 py-4">
+            <h2 class="text-lg font-semibold text-white">관리자 추가</h2>
+        </div>
+        <form method="post" action="/admins" class="space-y-4 p-5">
+            <label class="block">
+                <span class="mb-2 block text-sm text-slate-400">Discord 사용자 ID</span>
+                <input
+                    type="text"
+                    name="user_id"
+                    inputmode="numeric"
+                    pattern="[0-9]+"
+                    placeholder="394859392299696130"
+                    class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
+                    required
+                >
+            </label>
+            <p class="text-sm text-slate-500">개발자 모드를 켠 뒤 프로필 우클릭 → ID 복사로 가져온 사용자 ID를 넣으면 됩니다.</p>
+            <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
+                관리자 추가
+            </button>
+        </form>
     </article>
 </section>
 {% endblock %}

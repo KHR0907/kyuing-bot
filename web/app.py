@@ -5,7 +5,9 @@ import aiohttp
 from loguru import logger as log
 from quart import Quart, current_app, session, redirect, render_template, request, url_for
 
+import database
 from config import (
+    DASHBOARD_ADMIN_IDS,
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     DISCORD_REDIRECT_URI,
@@ -19,7 +21,9 @@ OAUTH2_URL = "https://discord.com/oauth2/authorize"
 
 
 async def get_dashboard_owner_ids(bot) -> set[int]:
-    owner_ids = {int(owner_id) for owner_id in getattr(bot, "dashboard_owner_ids", set()) if owner_id}
+    owner_ids = set(DASHBOARD_ADMIN_IDS)
+    owner_ids.update(await database.get_dashboard_admin_ids())
+    owner_ids.update(int(owner_id) for owner_id in getattr(bot, "dashboard_owner_ids", set()) if owner_id)
     if owner_ids:
         return owner_ids
 

@@ -53,6 +53,12 @@ async def init_db():
             active_channel_count INTEGER DEFAULT 0
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS dashboard_admins (
+            user_id INTEGER PRIMARY KEY,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     await _db.commit()
     await purge_old_daily_stats()
 
@@ -157,6 +163,34 @@ async def get_tts_channel_counts_by_guild() -> dict[int, int]:
         GROUP BY guild_id
     """) as cursor:
         return {row[0]: row[1] async for row in cursor}
+
+
+async def get_dashboard_admin_ids() -> list[int]:
+    async with _db.execute(
+        "SELECT user_id FROM dashboard_admins ORDER BY created_at ASC, user_id ASC"
+    ) as cursor:
+        return [row[0] async for row in cursor]
+
+
+async def add_dashboard_admin(user_id: int) -> bool:
+    try:
+        await _db.execute(
+            "INSERT INTO dashboard_admins (user_id) VALUES (?)",
+            (user_id,),
+        )
+        await _db.commit()
+        return True
+    except aiosqlite.IntegrityError:
+        return False
+
+
+async def remove_dashboard_admin(user_id: int) -> bool:
+    cursor = await _db.execute(
+        "DELETE FROM dashboard_admins WHERE user_id = ?",
+        (user_id,),
+    )
+    await _db.commit()
+    return cursor.rowcount > 0
 
 
 async def purge_old_daily_stats(reference_day: date | None = None):

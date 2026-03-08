@@ -11,6 +11,17 @@ def _env_flag(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _env_int_set(name: str) -> set[int]:
+    value = os.getenv(name, "")
+    items = set()
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        items.add(int(part))
+    return items
+
 # Discord
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 
@@ -18,6 +29,7 @@ DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
 DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:5001/callback")
+DASHBOARD_ADMIN_IDS = _env_int_set("DASHBOARD_ADMIN_IDS")
 
 # Web
 WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "change-me-in-production")

@@ -41,7 +41,8 @@ async def refresh_dashboard_snapshot() -> int:
 
 
 async def refresh_dashboard_owner_ids():
-    owner_ids = set()
+    owner_ids = set(config.DASHBOARD_ADMIN_IDS)
+    owner_ids.update(await database.get_dashboard_admin_ids())
     try:
         app_info = await bot.application_info()
         if getattr(app_info, "owner", None):
@@ -50,6 +51,7 @@ async def refresh_dashboard_owner_ids():
         log.warning("대시보드 소유자 조회 실패: {}", e)
 
     bot.dashboard_owner_ids = owner_ids
+    log.info("대시보드 관리자 ID {}", sorted(owner_ids))
 
 
 @bot.event
