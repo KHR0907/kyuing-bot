@@ -1,5 +1,6 @@
 discord.py
 PyNaCl
+davey
 loguru
 python-dotenv
 supertonic
