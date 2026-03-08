@@ -421,17 +421,17 @@
                     <!-- Column header -->
                     <div class="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
                         <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-mint/10 text-xs font-bold text-mint">
-                            {{ group.guild_name[0] }}
+                            {{ group["guild_name"][0] }}
                         </div>
                         <div class="min-w-0 flex-1">
-                            <p class="truncate text-[13px] font-semibold">{{ group.guild_name }}</p>
-                            <p class="text-[11px] text-white/25">{{ group.items|length }}개 키워드</p>
+                            <p class="truncate text-[13px] font-semibold">{{ group["guild_name"] }}</p>
+                            <p class="text-[11px] text-white/25">{{ group["items"]|length }}개 키워드</p>
                         </div>
                     </div>
 
                     <!-- Keyword cards -->
                     <div class="flex-1 space-y-2 p-3">
-                        {% for item in group.items %}
+                        {% for item in group["items"] %}
                         <div class="group rounded-xl border border-white/[0.04] bg-white/[0.03] p-3 transition hover:border-white/[0.08]">
                             <div class="flex items-start justify-between gap-2">
                                 <code class="rounded-md bg-mint/10 px-2 py-0.5 font-mono text-[12px] text-mint">{{ item.keyword }}</code>
@@ -449,7 +449,7 @@
                     <!-- Inline add form at column bottom -->
                     <div class="border-t border-white/[0.06] p-3">
                         <form method="post" action="/keyword-aliases/guild" class="space-y-2">
-                            <input type="hidden" name="guild_id" value="{{ group.guild_id }}">
+                            <input type="hidden" name="guild_id" value="{{ group["guild_id"] }}">
                             <div class="overflow-hidden rounded-lg border border-white/[0.06] bg-surface-0/40 transition focus-within:border-mint/30">
                                 <input type="text" name="keyword" placeholder="키워드 입력" class="w-full border-none bg-transparent px-3 py-2 text-[12px] font-medium text-mint placeholder:text-white/20 focus:outline-none" required>
                                 <div class="flex items-center gap-1.5 border-t border-white/[0.04] px-3 py-0.5">
