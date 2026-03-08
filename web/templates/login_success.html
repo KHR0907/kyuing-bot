@@ -6,22 +6,57 @@
     <title>로그인 완료 - TTS Bot</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Pretendard Variable"', '"Pretendard"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+                    },
+                    colors: {
+                        surface: { 0: '#0a0a0f', 1: '#12121a' },
+                        mint: { DEFAULT: '#00cec9', light: '#81ecec' },
+                    },
+                },
+            },
+        }
+    </script>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+    <script>
         window.addEventListener("load", () => {
-            setTimeout(() => {
-                window.location.href = "/";
-            }, 600);
+            setTimeout(() => { window.location.href = "/"; }, 600);
         });
     </script>
+    <style>
+        @keyframes check-draw { 0% { stroke-dashoffset: 48; } 100% { stroke-dashoffset: 0; } }
+        @keyframes scale-in { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+        .check-circle { animation: scale-in 0.4s ease-out forwards; }
+        .check-mark { stroke-dasharray: 48; stroke-dashoffset: 48; animation: check-draw 0.3s ease-out 0.3s forwards; }
+    </style>
 </head>
-<body class="min-h-screen bg-slate-950 text-slate-100">
-    <div class="flex min-h-screen items-center justify-center px-4">
-        <div class="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 text-center">
-            <p class="mb-3 text-sm uppercase tracking-[0.3em] text-emerald-400">Login Complete</p>
-            <h1 class="mb-3 text-3xl font-bold">인증 성공</h1>
-            <p class="mb-2 text-slate-300">{{ user.username }} 계정으로 로그인되었습니다.</p>
-            <p class="mb-6 text-sm text-slate-500">잠시 후 대시보드로 이동합니다.</p>
-            <a href="/" class="inline-block rounded-xl bg-cyan-500 px-6 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
-                대시보드로 이동
+<body class="min-h-screen bg-surface-0 font-sans text-white antialiased">
+    <div class="pointer-events-none fixed inset-0 -z-10">
+        <div class="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-mint/[0.08] blur-[120px]"></div>
+    </div>
+
+    <div class="flex min-h-screen flex-col items-center justify-center px-4">
+        <div class="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-surface-1/80 p-10 text-center backdrop-blur-xl">
+            <div class="mb-6 flex justify-center">
+                <div class="check-circle flex h-16 w-16 items-center justify-center rounded-full bg-mint/15">
+                    <svg class="h-8 w-8 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline class="check-mark" points="6 12 10 16 18 8"/>
+                    </svg>
+                </div>
+            </div>
+            <h1 class="text-xl font-bold">인증 성공</h1>
+            <p class="mt-2 text-sm text-white/50">{{ user.username }} 계정으로 로그인되었습니다</p>
+            <div class="mt-6">
+                <div class="mx-auto h-1 w-24 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div class="h-full animate-pulse rounded-full bg-mint/60" style="animation-duration: 0.6s;"></div>
+                </div>
+                <p class="mt-3 text-xs text-white/30">대시보드로 이동 중...</p>
+            </div>
+            <a href="/" class="mt-6 inline-block text-sm font-medium text-mint/70 transition hover:text-mint">
+                바로 이동 &rarr;
             </a>
         </div>
     </div>

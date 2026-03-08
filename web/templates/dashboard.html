@@ -1,92 +1,244 @@
 {% extends "base.html" %}
 {% block title %}운영 대시보드 - TTS Bot{% endblock %}
+{% block head %}
+<style>
+    .nav-pill { position: relative; }
+    .nav-pill.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 20px;
+        border-radius: 0 3px 3px 0;
+        background: #6c5ce7;
+    }
+    .card {
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(18, 18, 26, 0.6);
+        backdrop-filter: blur(12px);
+        border-radius: 16px;
+        transition: border-color 0.2s;
+    }
+    .card:hover { border-color: rgba(255,255,255,0.1); }
+    .stat-card {
+        position: relative;
+        overflow: hidden;
+    }
+    .stat-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 80px;
+        height: 80px;
+        border-radius: 0 16px 0 80px;
+        opacity: 0.05;
+    }
+    .stat-card:nth-child(1)::after { background: #6c5ce7; }
+    .stat-card:nth-child(2)::after { background: #00cec9; }
+    .stat-card:nth-child(3)::after { background: #ffc048; }
+    .bar-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.04); overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #6c5ce7, #a29bfe); transition: width 0.6s ease-out; }
+    .table-row { transition: background 0.15s; }
+    .table-row:hover { background: rgba(255,255,255,0.03); }
+    .badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+    .input-field {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(10, 10, 15, 0.6);
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: white;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .input-field:focus {
+        border-color: rgba(108, 92, 231, 0.5);
+        box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+    }
+    .input-field::placeholder { color: rgba(255,255,255,0.2); }
+    .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 20px;
+        border-radius: 10px;
+        background: #6c5ce7;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-primary:hover { background: #7c6df0; box-shadow: 0 4px 16px rgba(108,92,231,0.25); }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-danger {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 14px;
+        border-radius: 8px;
+        background: rgba(255,107,107,0.1);
+        color: #ff8787;
+        font-size: 13px;
+        font-weight: 500;
+        border: 1px solid rgba(255,107,107,0.15);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-danger:hover { background: rgba(255,107,107,0.18); border-color: rgba(255,107,107,0.3); }
+    .notice-enter { animation: slideUp 0.3s ease-out; }
+    select.input-field { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.3)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+</style>
+{% endblock %}
+
 {% block content %}
-<section class="mb-8">
-    <p class="text-sm uppercase tracking-[0.3em] text-cyan-300">Monitoring</p>
-    <h1 class="mt-2 text-3xl font-semibold text-white">운영 대시보드</h1>
-    <p class="mt-2 text-sm text-slate-400">운영 현황과 대시보드 관리자 권한을 여기서 관리합니다. 봇 채널 설정은 디스코드 슬래시 커맨드에서 처리합니다.</p>
+<!-- Header -->
+<section class="mb-8 animate-fade-in">
+    <div class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </div>
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight">운영 대시보드</h1>
+            <p class="text-sm text-white/35">운영 현황과 관리자 권한을 관리합니다</p>
+        </div>
+    </div>
 </section>
 
+<!-- Notice -->
 {% if notice %}
-<section class="mb-6 rounded-2xl border px-5 py-4 {% if notice.level == 'success' %}border-emerald-500/30 bg-emerald-500/10 text-emerald-200{% elif notice.level == 'error' %}border-rose-500/30 bg-rose-500/10 text-rose-200{% else %}border-slate-700 bg-slate-900/80 text-slate-200{% endif %}">
-    {{ notice.message }}
+<section class="notice-enter mb-6 flex items-center gap-3 rounded-xl border px-5 py-4 {% if notice.level == 'success' %}border-mint/20 bg-mint/[0.06]{% elif notice.level == 'error' %}border-coral/20 bg-coral/[0.06]{% else %}border-white/[0.08] bg-white/[0.03]{% endif %}">
+    {% if notice.level == 'success' %}
+    <svg class="h-5 w-5 shrink-0 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    <span class="text-sm text-mint-light">{{ notice.message }}</span>
+    {% elif notice.level == 'error' %}
+    <svg class="h-5 w-5 shrink-0 text-coral" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    <span class="text-sm text-coral-light">{{ notice.message }}</span>
+    {% else %}
+    <span class="text-sm text-white/60">{{ notice.message }}</span>
+    {% endif %}
 </section>
 {% endif %}
 
-<section class="grid gap-6 lg:grid-cols-[240px,minmax(0,1fr)]">
-    <aside class="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 lg:sticky lg:top-8 lg:self-start">
-        <nav class="space-y-2">
-            <a href="/?section=overview" class="block rounded-2xl px-4 py-3 text-sm font-medium transition {% if active_section == 'overview' %}bg-cyan-500 text-slate-950{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">개요</a>
-            <a href="/?section=admins" class="block rounded-2xl px-4 py-3 text-sm font-medium transition {% if active_section == 'admins' %}bg-cyan-500 text-slate-950{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">대시보드 관리자</a>
-            <a href="/?section=keywords" class="block rounded-2xl px-4 py-3 text-sm font-medium transition {% if active_section == 'keywords' %}bg-cyan-500 text-slate-950{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">키워드 치환</a>
+<!-- Layout -->
+<section class="grid gap-8 lg:grid-cols-[220px,minmax(0,1fr)]">
+    <!-- Sidebar -->
+    <aside class="animate-fade-in lg:sticky lg:top-24 lg:self-start">
+        <nav class="space-y-1">
+            <a href="/?section=overview" class="nav-pill {% if active_section == 'overview' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'overview' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                개요
+            </a>
+            <a href="/?section=admins" class="nav-pill {% if active_section == 'admins' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'admins' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                관리자
+            </a>
+            <a href="/?section=keywords" class="nav-pill {% if active_section == 'keywords' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'keywords' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                키워드 치환
+            </a>
         </nav>
     </aside>
 
-    <div>
+    <!-- Main content -->
+    <div class="animate-slide-up">
         {% if active_section == 'overview' %}
-        <section class="grid gap-4 md:grid-cols-3">
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-                <p class="text-sm text-slate-400">서버 수</p>
-                <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.guild_count }}</p>
-                <p class="mt-2 text-sm {% if metrics.guild_delta > 0 %}text-emerald-400{% elif metrics.guild_delta < 0 %}text-rose-400{% else %}text-slate-500{% endif %}">
-                    어제 대비 {% if metrics.guild_delta > 0 %}+{% endif %}{{ metrics.guild_delta }}
+        <!-- Stats cards -->
+        <section class="grid gap-4 sm:grid-cols-3">
+            <article class="stat-card card p-5">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+                        <svg class="h-4 w-4 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </div>
+                    <span class="text-xs font-medium text-white/35">서버 수</span>
+                </div>
+                <p class="mt-3 text-3xl font-bold tabular-nums">{{ metrics.guild_count }}</p>
+                <p class="mt-1 text-xs font-medium {% if metrics.guild_delta > 0 %}text-mint{% elif metrics.guild_delta < 0 %}text-coral{% else %}text-white/25{% endif %}">
+                    {% if metrics.guild_delta > 0 %}+{% endif %}{{ metrics.guild_delta }} 어제 대비
                 </p>
             </article>
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-                <p class="text-sm text-slate-400">활성 TTS 채널</p>
-                <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.active_channel_count }}</p>
-                <p class="mt-2 text-sm {% if metrics.active_channel_delta > 0 %}text-emerald-400{% elif metrics.active_channel_delta < 0 %}text-rose-400{% else %}text-slate-500{% endif %}">
-                    어제 대비 {% if metrics.active_channel_delta > 0 %}+{% endif %}{{ metrics.active_channel_delta }}
+            <article class="stat-card card p-5">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-mint/10">
+                        <svg class="h-4 w-4 text-mint-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+                    </div>
+                    <span class="text-xs font-medium text-white/35">활성 TTS 채널</span>
+                </div>
+                <p class="mt-3 text-3xl font-bold tabular-nums">{{ metrics.active_channel_count }}</p>
+                <p class="mt-1 text-xs font-medium {% if metrics.active_channel_delta > 0 %}text-mint{% elif metrics.active_channel_delta < 0 %}text-coral{% else %}text-white/25{% endif %}">
+                    {% if metrics.active_channel_delta > 0 %}+{% endif %}{{ metrics.active_channel_delta }} 어제 대비
                 </p>
             </article>
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-                <p class="text-sm text-slate-400">오늘 요청 수</p>
-                <p class="mt-3 text-3xl font-semibold text-white">{{ metrics.daily_requests }}</p>
-                <p class="mt-2 text-sm text-slate-500">어제 {{ metrics.daily_requests_yesterday }}건</p>
+            <article class="stat-card card p-5">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-sun/10">
+                        <svg class="h-4 w-4 text-sun-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <span class="text-xs font-medium text-white/35">오늘 요청</span>
+                </div>
+                <p class="mt-3 text-3xl font-bold tabular-nums">{{ metrics.daily_requests }}</p>
+                <p class="mt-1 text-xs font-medium text-white/25">어제 {{ metrics.daily_requests_yesterday }}건</p>
             </article>
         </section>
 
-        <section class="mt-8 grid gap-6 xl:grid-cols-[1.6fr,1fr]">
-            <article class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">서버 목록</h2>
+        <!-- Server list + Chart -->
+        <section class="mt-6 grid gap-6 xl:grid-cols-[1.6fr,1fr]">
+            <article class="card overflow-hidden">
+                <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+                    <h2 class="text-[15px] font-semibold">서버 목록</h2>
+                    <span class="text-xs text-white/25">{{ guilds|length }}개 서버</span>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-slate-900 text-slate-400">
-                            <tr>
-                                <th class="px-5 py-3 text-left font-medium">서버</th>
-                                <th class="px-5 py-3 text-left font-medium">멤버</th>
-                                <th class="px-5 py-3 text-left font-medium">활성 채널</th>
-                                <th class="px-5 py-3 text-left font-medium">음성 상태</th>
+                    <table class="min-w-full">
+                        <thead>
+                            <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
+                                <th class="px-6 py-3 text-left">서버</th>
+                                <th class="px-6 py-3 text-left">멤버</th>
+                                <th class="px-6 py-3 text-left">채널</th>
+                                <th class="px-6 py-3 text-left">음성</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-800">
+                        <tbody>
                             {% for guild in guilds %}
-                            <tr class="transition hover:bg-slate-800/60">
-                                <td class="px-5 py-4">
+                            <tr class="table-row border-b border-white/[0.03] last:border-0">
+                                <td class="px-6 py-4">
                                     <div class="flex items-center gap-3">
                                         {% if guild.icon_url %}
-                                        <img src="{{ guild.icon_url }}" alt="" class="h-10 w-10 rounded-full border border-slate-700 object-cover">
+                                        <img src="{{ guild.icon_url }}" alt="" class="h-9 w-9 rounded-lg object-cover ring-1 ring-white/[0.08]">
                                         {% else %}
-                                        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-cyan-300">
+                                        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 text-sm font-bold text-accent-light ring-1 ring-white/[0.08]">
                                             {{ guild.name[0] }}
                                         </div>
                                         {% endif %}
                                         <div>
-                                            <div class="font-medium text-white">{{ guild.name }}</div>
-                                            <div class="text-xs text-slate-500">{{ guild.id }}</div>
+                                            <div class="text-sm font-medium">{{ guild.name }}</div>
+                                            <div class="font-mono text-[11px] text-white/20">{{ guild.id }}</div>
                                         </div>
                                     </div>
                                 </td>
-                                <td class="px-5 py-4 text-slate-300">{{ guild.member_count }}</td>
-                                <td class="px-5 py-4 text-slate-300">{{ guild.active_channels }}</td>
-                                <td class="px-5 py-4 text-slate-300">{{ guild.voice_status }}</td>
+                                <td class="px-6 py-4 text-sm tabular-nums text-white/50">{{ guild.member_count }}</td>
+                                <td class="px-6 py-4 text-sm tabular-nums text-white/50">{{ guild.active_channels }}</td>
+                                <td class="px-6 py-4">
+                                    {% if guild.voice_status != '-' %}
+                                    <span class="badge bg-mint/10 text-mint">
+                                        <span class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-mint"></span>
+                                        {{ guild.voice_status }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-sm text-white/20">&mdash;</span>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                             {% if not guilds %}
                             <tr>
-                                <td colspan="4" class="px-5 py-6 text-center text-slate-500">봇이 참여 중인 서버가 없습니다.</td>
+                                <td colspan="4" class="px-6 py-10 text-center text-sm text-white/25">봇이 참여 중인 서버가 없습니다</td>
                             </tr>
                             {% endif %}
                         </tbody>
@@ -94,177 +246,173 @@
                 </div>
             </article>
 
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">최근 7일 요청</h2>
+            <article class="card">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <h2 class="text-[15px] font-semibold">최근 7일 요청</h2>
                 </div>
-                <div class="space-y-3 p-5">
+                <div class="space-y-4 p-6">
                     {% for day in metrics.recent_requests %}
                     <div>
-                        <div class="mb-2 flex items-center justify-between text-sm">
-                            <span class="text-slate-400">{{ day.label }}</span>
-                            <span class="font-medium text-white">{{ day.tts_requests }}건</span>
+                        <div class="mb-2 flex items-center justify-between text-[13px]">
+                            <span class="text-white/35">{{ day.label }}</span>
+                            <span class="font-semibold tabular-nums text-white/70">{{ day.tts_requests }}<span class="ml-0.5 text-white/30">건</span></span>
                         </div>
-                        <div class="h-2 overflow-hidden rounded-full bg-slate-800">
-                            <div class="h-full rounded-full bg-cyan-400" style="width: {{ day.bar_width }}%"></div>
+                        <div class="bar-track">
+                            <div class="bar-fill" style="width: {{ day.bar_width }}%"></div>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
             </article>
         </section>
+
         {% elif active_section == 'admins' %}
         <section class="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">대시보드 관리자</h2>
-                    <p class="mt-1 text-sm text-slate-500">슈퍼 어드민과 봇 owner는 읽기 전용입니다. 여기서 추가한 대시보드 관리자만 삭제할 수 있습니다.</p>
+            <!-- Admin list -->
+            <article class="card overflow-hidden">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <h2 class="text-[15px] font-semibold">대시보드 관리자</h2>
+                    <p class="mt-1 text-xs text-white/30">슈퍼 어드민과 봇 owner는 읽기 전용입니다</p>
                 </div>
-                <div class="divide-y divide-slate-800">
+                <div>
                     {% for admin in admin_entries %}
-                    <div class="flex items-center justify-between gap-4 px-5 py-4">
-                        <div>
-                            <div class="flex items-center gap-2 font-medium text-white">
-                                <span>{{ admin.display_name }}</span>
-                                {% if admin.is_current_user %}
-                                <span class="text-cyan-300">(현재 로그인)</span>
-                                {% endif %}
-                                {% if viewer_is_super_admin %}
-                                <button
-                                    type="button"
-                                    class="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-cyan-400 hover:text-cyan-300"
-                                    onclick="const el=this.nextElementSibling; el.classList.toggle('hidden');"
-                                >
-                                    ID
-                                </button>
-                                <span class="hidden rounded-md bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-400">{{ admin.user_id }}</span>
-                                {% endif %}
+                    <div class="flex items-center justify-between gap-4 border-b border-white/[0.03] px-6 py-4 last:border-0">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-lg {% if admin.source == 'owner' %}bg-sun/10{% elif admin.source == 'super_admin' %}bg-white/[0.06]{% else %}bg-mint/10{% endif %}">
+                                <svg class="h-4 w-4 {% if admin.source == 'owner' %}text-sun{% elif admin.source == 'super_admin' %}text-white/40{% else %}text-mint{% endif %}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                             </div>
-                            <div class="mt-1 text-xs uppercase tracking-[0.25em] {% if admin.source == 'owner' %}text-amber-300{% elif admin.source == 'super_admin' %}text-slate-400{% else %}text-emerald-300{% endif %}">
-                                {{ admin.source_label }}
+                            <div>
+                                <div class="flex items-center gap-2 text-sm font-medium">
+                                    {{ admin.display_name }}
+                                    {% if admin.is_current_user %}
+                                    <span class="badge bg-accent/10 text-accent-light text-[10px]">나</span>
+                                    {% endif %}
+                                    {% if viewer_is_super_admin %}
+                                    <button type="button" class="rounded-md bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/30 transition hover:bg-white/[0.08] hover:text-white/50" onclick="const el=this.nextElementSibling; el.classList.toggle('hidden');">ID</button>
+                                    <span class="hidden font-mono text-[11px] text-white/25">{{ admin.user_id }}</span>
+                                    {% endif %}
+                                </div>
+                                <span class="badge mt-1 {% if admin.source == 'owner' %}bg-sun/10 text-sun{% elif admin.source == 'super_admin' %}bg-white/[0.06] text-white/40{% else %}bg-mint/10 text-mint{% endif %}">
+                                    {{ admin.source_label }}
+                                </span>
                             </div>
                         </div>
                         {% if admin.removable %}
                         <form method="post" action="/admins/{{ admin.user_id }}/delete">
-                            <button type="submit" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20">
+                            <button type="submit" class="btn-danger">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 삭제
                             </button>
                         </form>
                         {% else %}
-                        <span class="text-xs text-slate-500">삭제 불가</span>
+                        <span class="text-[11px] text-white/15">보호됨</span>
                         {% endif %}
                     </div>
                     {% endfor %}
                 </div>
             </article>
 
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">관리자 추가</h2>
+            <!-- Add admin -->
+            <article class="card h-fit">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <h2 class="text-[15px] font-semibold">관리자 추가</h2>
                 </div>
-                <form method="post" action="/admins" class="space-y-4 p-5">
+                <form method="post" action="/admins" class="space-y-4 p-6">
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">Discord 사용자 ID</span>
-                        <input
-                            type="text"
-                            name="user_id"
-                            inputmode="numeric"
-                            pattern="[0-9]+"
-                            placeholder="123456789012345678"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        >
+                        <span class="mb-2 block text-xs font-medium text-white/40">Discord 사용자 ID</span>
+                        <input type="text" name="user_id" inputmode="numeric" pattern="[0-9]+" placeholder="123456789012345678" class="input-field font-mono" required>
                     </label>
-                    <p class="text-sm text-slate-500">개발자 모드를 켠 뒤 프로필 우클릭 → ID 복사로 가져온 사용자 ID를 넣으면 됩니다.</p>
-                    <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
+                    <p class="text-xs leading-relaxed text-white/25">개발자 모드를 켠 뒤 프로필 우클릭 &rarr; ID 복사로 가져온 사용자 ID를 입력하세요.</p>
+                    <button type="submit" class="btn-primary w-full">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         관리자 추가
                     </button>
                 </form>
             </article>
         </section>
+
         {% elif active_section == 'keywords' %}
         <section class="grid gap-6 xl:grid-cols-2">
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">전역 키워드 치환</h2>
-                    <p class="mt-1 text-sm text-slate-500">메시지 전체가 키워드와 정확히 일치하면 치환 문장으로 읽습니다.</p>
+            <!-- Global keywords -->
+            <article class="card overflow-hidden">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <div class="flex items-center gap-2">
+                        <div class="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10">
+                            <svg class="h-3.5 w-3.5 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
+                        </div>
+                        <h2 class="text-[15px] font-semibold">전역 키워드</h2>
+                    </div>
+                    <p class="mt-1.5 text-xs text-white/30">메시지가 키워드와 정확히 일치하면 치환 문장으로 읽습니다</p>
                 </div>
-                <div class="divide-y divide-slate-800">
+                <div>
                     {% for item in global_keyword_aliases %}
-                    <div class="flex items-center justify-between gap-4 px-5 py-4">
-                        <div>
-                            <div class="font-medium text-white">{{ item.keyword }}</div>
-                            <div class="mt-1 text-sm text-slate-400">{{ item.replacement }}</div>
+                    <div class="flex items-center justify-between gap-4 border-b border-white/[0.03] px-6 py-4 last:border-0">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <code class="rounded-md bg-accent/10 px-2 py-0.5 font-mono text-sm text-accent-light">{{ item.keyword }}</code>
+                                <svg class="h-3.5 w-3.5 shrink-0 text-white/15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                            </div>
+                            <p class="mt-1.5 truncate text-sm text-white/40">{{ item.replacement }}</p>
                         </div>
                         <form method="post" action="/keyword-aliases/global/{{ item.keyword }}/delete">
-                            <button type="submit" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20">
-                                삭제
-                            </button>
+                            <button type="submit" class="btn-danger">삭제</button>
                         </form>
                     </div>
                     {% endfor %}
                     {% if not global_keyword_aliases %}
-                    <div class="px-5 py-6 text-sm text-slate-500">등록된 전역 키워드가 없습니다.</div>
+                    <div class="px-6 py-8 text-center text-sm text-white/20">등록된 전역 키워드가 없습니다</div>
                     {% endif %}
                 </div>
-                <form method="post" action="/keyword-aliases/global" class="space-y-4 border-t border-slate-800 p-5">
+                <form method="post" action="/keyword-aliases/global" class="space-y-3 border-t border-white/[0.06] p-6">
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">키워드</span>
-                        <input
-                            type="text"
-                            name="keyword"
-                            placeholder="ㄱㅅ"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        >
+                        <span class="mb-1.5 block text-xs font-medium text-white/40">키워드</span>
+                        <input type="text" name="keyword" placeholder="ㄱㅅ" class="input-field" required>
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">치환 문장</span>
-                        <textarea
-                            name="replacement"
-                            rows="3"
-                            placeholder="감사합니다"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        ></textarea>
+                        <span class="mb-1.5 block text-xs font-medium text-white/40">치환 문장</span>
+                        <textarea name="replacement" rows="2" placeholder="감사합니다" class="input-field resize-none" required></textarea>
                     </label>
-                    <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
+                    <button type="submit" class="btn-primary w-full">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         전역 키워드 추가
                     </button>
                 </form>
             </article>
 
-            <article class="rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div class="border-b border-slate-800 px-5 py-4">
-                    <h2 class="text-lg font-semibold text-white">서버별 키워드 치환</h2>
-                    <p class="mt-1 text-sm text-slate-500">같은 키워드가 전역과 서버별에 모두 있으면 서버별 설정이 우선합니다.</p>
+            <!-- Guild-specific keywords -->
+            <article class="card overflow-hidden">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <div class="flex items-center gap-2">
+                        <div class="flex h-6 w-6 items-center justify-center rounded-md bg-mint/10">
+                            <svg class="h-3.5 w-3.5 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </div>
+                        <h2 class="text-[15px] font-semibold">서버별 키워드</h2>
+                    </div>
+                    <p class="mt-1.5 text-xs text-white/30">같은 키워드가 전역과 서버별에 모두 있으면 서버별 설정이 우선</p>
                 </div>
-                <div class="divide-y divide-slate-800">
+                <div>
                     {% for item in guild_keyword_aliases %}
-                    <div class="flex items-center justify-between gap-4 px-5 py-4">
-                        <div>
-                            <div class="font-medium text-white">{{ item.guild_name }}</div>
-                            <div class="mt-1 text-sm text-slate-300">{{ item.keyword }} → {{ item.replacement }}</div>
+                    <div class="flex items-center justify-between gap-4 border-b border-white/[0.03] px-6 py-4 last:border-0">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="badge bg-white/[0.06] text-white/40">{{ item.guild_name }}</span>
+                                <code class="rounded-md bg-mint/10 px-2 py-0.5 font-mono text-sm text-mint">{{ item.keyword }}</code>
+                            </div>
+                            <p class="mt-1.5 truncate text-sm text-white/40">{{ item.replacement }}</p>
                         </div>
                         <form method="post" action="/keyword-aliases/guild/{{ item.guild_id }}/{{ item.keyword }}/delete">
-                            <button type="submit" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20">
-                                삭제
-                            </button>
+                            <button type="submit" class="btn-danger">삭제</button>
                         </form>
                     </div>
                     {% endfor %}
                     {% if not guild_keyword_aliases %}
-                    <div class="px-5 py-6 text-sm text-slate-500">등록된 서버별 키워드가 없습니다.</div>
+                    <div class="px-6 py-8 text-center text-sm text-white/20">등록된 서버별 키워드가 없습니다</div>
                     {% endif %}
                 </div>
-                <form method="post" action="/keyword-aliases/guild" class="space-y-4 border-t border-slate-800 p-5">
+                <form method="post" action="/keyword-aliases/guild" class="space-y-3 border-t border-white/[0.06] p-6">
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">서버</span>
-                        <select
-                            name="guild_id"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        >
+                        <span class="mb-1.5 block text-xs font-medium text-white/40">서버</span>
+                        <select name="guild_id" class="input-field" required>
                             <option value="">서버 선택</option>
                             {% for guild in guilds %}
                             <option value="{{ guild.id }}">{{ guild.name }}</option>
@@ -272,26 +420,15 @@
                         </select>
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">키워드</span>
-                        <input
-                            type="text"
-                            name="keyword"
-                            placeholder="ㅂㅂ"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        >
+                        <span class="mb-1.5 block text-xs font-medium text-white/40">키워드</span>
+                        <input type="text" name="keyword" placeholder="ㅂㅂ" class="input-field" required>
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm text-slate-400">치환 문장</span>
-                        <textarea
-                            name="replacement"
-                            rows="3"
-                            placeholder="바보"
-                            class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                            required
-                        ></textarea>
+                        <span class="mb-1.5 block text-xs font-medium text-white/40">치환 문장</span>
+                        <textarea name="replacement" rows="2" placeholder="바보" class="input-field resize-none" required></textarea>
                     </label>
-                    <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-cyan-400">
+                    <button type="submit" class="btn-primary w-full">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         서버 키워드 추가
                     </button>
                 </form>
