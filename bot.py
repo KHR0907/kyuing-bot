@@ -12,6 +12,7 @@ import os
 import signal
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from loguru import logger as log
 
@@ -105,6 +106,22 @@ async def on_guild_join(guild):
 async def on_guild_remove(guild):
     log.info("서버 이탈: {} ({})", guild.name, guild.id)
     await refresh_dashboard_snapshot()
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    command_name = interaction.command.qualified_name if interaction.command else "unknown"
+    log.exception(
+        "슬래시 명령 실패 command={} guild_id={} user_id={}",
+        command_name,
+        interaction.guild.id if interaction.guild else None,
+        interaction.user.id if interaction.user else None,
+    )
+
+    if interaction.response.is_done():
+        await interaction.followup.send("❌ 명령 처리 중 오류가 발생했습니다.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ 명령 처리 중 오류가 발생했습니다.", ephemeral=True)
 
 
 async def main():
