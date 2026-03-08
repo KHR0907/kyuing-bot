@@ -9,6 +9,8 @@ from config import (
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     DISCORD_REDIRECT_URI,
+    SESSION_COOKIE_SAMESITE,
+    SESSION_COOKIE_SECURE,
     WEB_SECRET_KEY,
 )
 
@@ -69,8 +71,8 @@ def create_app(bot):
     app.config.update(
         SESSION_COOKIE_NAME="tts_dashboard_session",
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=False,
+        SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
+        SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
     )
     app.bot = bot
 

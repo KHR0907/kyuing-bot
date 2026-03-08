@@ -1,0 +1,12 @@
+.git
+.gitignore
+.idea
+.claude
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+data/
+*.db

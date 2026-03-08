@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # Discord
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 
@@ -15,6 +22,8 @@ DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:8080/
 # Web
 WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "change-me-in-production")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", False)
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 
 # Database
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/bot.db")
