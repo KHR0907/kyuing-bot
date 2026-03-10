@@ -271,6 +271,34 @@ async def remove_global_keyword_alias(keyword: str) -> bool:
     return False
 
 
+async def update_global_keyword_alias(original_keyword: str, keyword: str, replacement: str) -> str:
+    async with _db.execute(
+        "SELECT 1 FROM global_keyword_aliases WHERE keyword = ?",
+        (original_keyword,),
+    ) as cursor:
+        existing = await cursor.fetchone()
+    if existing is None:
+        return "not_found"
+
+    try:
+        await _db.execute(
+            """
+            UPDATE global_keyword_aliases
+            SET keyword = ?, replacement = ?
+            WHERE keyword = ?
+            """,
+            (keyword, replacement, original_keyword),
+        )
+        await _db.commit()
+    except aiosqlite.IntegrityError:
+        return "conflict"
+
+    if original_keyword != keyword:
+        _global_keyword_cache.pop(original_keyword, None)
+    _global_keyword_cache[keyword] = replacement
+    return "updated"
+
+
 async def get_guild_keyword_aliases() -> list[dict]:
     async with _db.execute(
         """
@@ -311,6 +339,35 @@ async def remove_guild_keyword_alias(guild_id: int, keyword: str) -> bool:
             _guild_keyword_cache.pop(guild_id, None)
         return True
     return False
+
+
+async def update_guild_keyword_alias(guild_id: int, original_keyword: str, keyword: str, replacement: str) -> str:
+    async with _db.execute(
+        "SELECT 1 FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
+        (guild_id, original_keyword),
+    ) as cursor:
+        existing = await cursor.fetchone()
+    if existing is None:
+        return "not_found"
+
+    try:
+        await _db.execute(
+            """
+            UPDATE guild_keyword_aliases
+            SET keyword = ?, replacement = ?
+            WHERE guild_id = ? AND keyword = ?
+            """,
+            (keyword, replacement, guild_id, original_keyword),
+        )
+        await _db.commit()
+    except aiosqlite.IntegrityError:
+        return "conflict"
+
+    guild_aliases = _guild_keyword_cache.setdefault(guild_id, {})
+    if original_keyword != keyword:
+        guild_aliases.pop(original_keyword, None)
+    guild_aliases[keyword] = replacement
+    return "updated"
 
 
 async def purge_old_daily_stats(reference_day: date | None = None):
