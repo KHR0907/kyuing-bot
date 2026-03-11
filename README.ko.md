@@ -1,6 +1,6 @@
 # kyuing-bot
 
-Discord 서버에서 텍스트를 음성으로 읽어주는 TTS 봇입니다. Quart 기반 웹 대시보드가 함께 실행되며, Discord OAuth 로그인과 운영 통계 확인을 지원합니다.
+Discord 서버에서 [Supertonic-2](https://github.com/jnjsoftweb/supertonic) TTS 엔진을 사용해 텍스트를 음성으로 읽어주는 봇입니다. Quart 기반 웹 대시보드가 함께 실행되며, Discord OAuth 로그인과 운영 통계 확인을 지원합니다.
 
 ## 주요 기능
 
@@ -25,6 +25,13 @@ Discord 서버에서 텍스트를 음성으로 읽어주는 TTS 봇입니다. Qu
 - `/quality`: 음성 품질 단계 설정
 - `/settings`: 내 TTS 설정 확인
 - `/voices`: 사용 가능한 음성 목록 확인
+
+## 시스템 요구사항
+
+- Docker & Docker Compose
+- Python 3.11+ (Docker 이미지에 포함)
+- FFmpeg (Docker 이미지에 포함)
+- RAM: 4 GB 이상 권장 (Supertonic-2 모델이 시작 시 메모리에 로드됨)
 
 ## 빠른 시작
 
@@ -103,59 +110,6 @@ cp .env.example .env
 mkdir -p data
 mkdir -p logs
 docker compose up -d --build
-```
-
-### 3. Nginx 리버스 프록시 설정
-
-```bash
-sudo apt install -y nginx
-sudo nano /etc/nginx/sites-available/kyuing-bot
-```
-
-예시 설정:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.example;
-
-    location / {
-        proxy_pass http://127.0.0.1:5001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/kyuing-bot /etc/nginx/sites-enabled/kyuing-bot
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 4. HTTPS 적용
-
-Discord OAuth 콜백 URL은 Discord 개발자 포털에 등록한 공개 URL과 정확히 일치해야 합니다.
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.example
-```
-
-HTTPS 적용 후 `.env`를 다음처럼 맞춥니다.
-
-```env
-DISCORD_REDIRECT_URI=https://your-domain.example/callback
-SESSION_COOKIE_SECURE=true
-```
-
-변경 후 재시작:
-
-```bash
-docker compose up -d
 ```
 
 ## 운영 명령

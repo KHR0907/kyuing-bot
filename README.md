@@ -2,7 +2,7 @@
 
 [한국어](README.ko.md)
 
-`kyuing-bot` is a Discord TTS bot that reads text messages in voice channels. It also runs a Quart-based web dashboard with Discord OAuth login and operational statistics.
+`kyuing-bot` is a Discord TTS bot that reads text messages in voice channels using the [Supertonic-2](https://github.com/jnjsoftweb/supertonic) TTS engine. It also runs a Quart-based web dashboard with Discord OAuth login and operational statistics.
 
 ## Features
 
@@ -27,6 +27,13 @@
 - `/quality`: set the synthesis quality level
 - `/settings`: view your current TTS preferences
 - `/voices`: list available voices
+
+## System Requirements
+
+- Docker & Docker Compose
+- Python 3.11+ (included in Docker image)
+- FFmpeg (included in Docker image)
+- RAM: 4 GB+ recommended (Supertonic-2 model is loaded into memory at startup)
 
 ## Quick Start
 
@@ -105,59 +112,6 @@ cp .env.example .env
 mkdir -p data
 mkdir -p logs
 docker compose up -d --build
-```
-
-### 3. Configure Nginx as a reverse proxy
-
-```bash
-sudo apt install -y nginx
-sudo nano /etc/nginx/sites-available/kyuing-bot
-```
-
-Example configuration:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.example;
-
-    location / {
-        proxy_pass http://127.0.0.1:5001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/kyuing-bot /etc/nginx/sites-enabled/kyuing-bot
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 4. Enable HTTPS
-
-The Discord OAuth callback URL must exactly match the public callback URL configured in the Discord Developer Portal.
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.example
-```
-
-After HTTPS is enabled, update `.env` as follows:
-
-```env
-DISCORD_REDIRECT_URI=https://your-domain.example/callback
-SESSION_COOKIE_SECURE=true
-```
-
-Then restart the service:
-
-```bash
-docker compose up -d
 ```
 
 ## Operations
