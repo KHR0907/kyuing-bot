@@ -2,7 +2,7 @@
 
 [한국어](README.ko.md)
 
-`kyuing-bot` is a Discord TTS bot that reads text messages in voice channels using the [Supertonic-2](https://github.com/jnjsoftweb/supertonic) TTS engine. It also runs a Quart-based web dashboard with Discord OAuth login and operational statistics.
+`kyuing-bot` is a Discord TTS bot that reads text messages in voice channels using the [Supertonic-2](https://github.com/supertone-inc/supertonic) TTS engine. It also runs a Quart-based web dashboard with Discord OAuth login and operational statistics.
 
 ## Features
 

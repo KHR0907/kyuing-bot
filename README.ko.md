@@ -1,6 +1,6 @@
 # kyuing-bot
 
-Discord 서버에서 [Supertonic-2](https://github.com/jnjsoftweb/supertonic) TTS 엔진을 사용해 텍스트를 음성으로 읽어주는 봇입니다. Quart 기반 웹 대시보드가 함께 실행되며, Discord OAuth 로그인과 운영 통계 확인을 지원합니다.
+Discord 서버에서 [Supertonic-2](https://github.com/supertone-inc/supertonic) TTS 엔진을 사용해 텍스트를 음성으로 읽어주는 봇입니다. Quart 기반 웹 대시보드가 함께 실행되며, Discord OAuth 로그인과 운영 통계 확인을 지원합니다.
 
 ## 주요 기능
 
