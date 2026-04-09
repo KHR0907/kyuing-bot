@@ -1,17 +1,12 @@
 import os
 import asyncio
-import tempfile
 from collections import defaultdict
 
 import discord
 from loguru import logger as log
-from supertonic import TTS
 
 import database
-
-log.info("Supertonic-2 모델 로딩 중...")
-_engine = TTS(auto_download=True)
-log.info("모델 로딩 완료")
+from tts_engines import get_engine
 
 # 서버별 TTS 큐 락
 _locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -28,6 +23,7 @@ async def do_tts(
     total_steps: int | None = None,
 ) -> str | None:
     settings = await database.get_user_settings(user_id)
+    engine_name = settings["engine"]
     voice = voice or settings["voice"]
     speed = speed if speed is not None else settings["speed"]
     lang = lang or settings["lang"]
@@ -36,26 +32,15 @@ async def do_tts(
     if len(text) > 1000:
         return "텍스트가 너무 깁니다. (최대 1000자)"
 
+    engine = get_engine(engine_name)
+
     async with _locks[guild.id]:
         tmp_path = None
         try:
-            voice_style = _engine.get_voice_style(voice_name=voice)
-            loop = asyncio.get_event_loop()
-            wav, duration = await loop.run_in_executor(
-                None,
-                lambda: _engine.synthesize(
-                    text,
-                    voice_style=voice_style,
-                    lang=lang,
-                    speed=speed,
-                    total_steps=total_steps,
-                ),
+            tmp_path = await engine.synthesize(
+                text, voice=voice, speed=speed, lang=lang,
+                total_steps=total_steps,
             )
-
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            _engine.save_audio(wav, tmp.name)
-            tmp_path = tmp.name
-            tmp.close()
 
             vc = guild.voice_client
             if vc is None:

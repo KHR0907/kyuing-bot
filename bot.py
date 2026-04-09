@@ -1,7 +1,7 @@
 """
-Supertonic-2 Discord TTS Bot
+Discord TTS Bot (Supertonic-2 / Google TTS)
 - 지정 채널에 메시지 치면 자동으로 읽어줌
-- /voice, /speed, /lang, /quality 등 슬래시 명령어 지원
+- /engine, /voice, /speed, /lang, /quality 등 슬래시 명령어 지원
 - 웹 대시보드로 운영 현황 모니터링
 """
 

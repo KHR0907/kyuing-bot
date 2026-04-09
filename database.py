@@ -34,10 +34,19 @@ async def init_db():
     await _db.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
+            engine TEXT DEFAULT 'supertonic',
             voice TEXT DEFAULT 'M1',
             speed REAL DEFAULT 1.0,
             lang TEXT DEFAULT 'ko',
             total_steps INTEGER DEFAULT 2
+        )
+    """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS tts_char_usage (
+            voice_type TEXT NOT NULL,
+            month TEXT NOT NULL,
+            char_count INTEGER DEFAULT 0,
+            PRIMARY KEY (voice_type, month)
         )
     """)
     await _db.execute("""
@@ -78,6 +87,15 @@ async def init_db():
         )
     """)
     await _db.commit()
+
+    # engine 컬럼 마이그레이션 (기존 DB 호환)
+    async with _db.execute("PRAGMA table_info(user_settings)") as cursor:
+        columns = {row[1] async for row in cursor}
+    if "engine" not in columns:
+        await _db.execute("ALTER TABLE user_settings ADD COLUMN engine TEXT DEFAULT 'supertonic'")
+        await _db.commit()
+        log.info("user_settings 테이블에 engine 컬럼 추가")
+
     await purge_old_daily_stats()
 
     # 캐시 워밍업
@@ -476,12 +494,15 @@ async def get_dashboard_metrics(guild_count: int, active_channel_count: int) -> 
 
 async def get_user_settings(user_id: int) -> dict:
     async with _db.execute(
-        "SELECT voice, speed, lang, total_steps FROM user_settings WHERE user_id = ?",
+        "SELECT engine, voice, speed, lang, total_steps FROM user_settings WHERE user_id = ?",
         (user_id,),
     ) as cursor:
         row = await cursor.fetchone()
         if row:
-            return {"voice": row[0], "speed": row[1], "lang": row[2], "total_steps": row[3]}
+            return {
+                "engine": row[0], "voice": row[1],
+                "speed": row[2], "lang": row[3], "total_steps": row[4],
+            }
     return dict(DEFAULT_USER_SETTINGS)
 
 
@@ -489,11 +510,38 @@ async def set_user_setting(user_id: int, **kwargs):
     current = await get_user_settings(user_id)
     current.update(kwargs)
     await _db.execute(
-        """INSERT INTO user_settings (user_id, voice, speed, lang, total_steps)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO user_settings (user_id, engine, voice, speed, lang, total_steps)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(user_id) DO UPDATE SET
-               voice=excluded.voice, speed=excluded.speed,
+               engine=excluded.engine, voice=excluded.voice, speed=excluded.speed,
                lang=excluded.lang, total_steps=excluded.total_steps""",
-        (user_id, current["voice"], current["speed"], current["lang"], current["total_steps"]),
+        (user_id, current["engine"], current["voice"], current["speed"],
+         current["lang"], current["total_steps"]),
     )
     await _db.commit()
+
+
+# ── Google TTS 글자수 사용량 ──
+
+async def increment_tts_char_usage(voice_type: str, char_count: int):
+    from datetime import datetime
+    month = datetime.now(KST).strftime("%Y-%m")
+    await _db.execute(
+        """INSERT INTO tts_char_usage (voice_type, month, char_count)
+           VALUES (?, ?, ?)
+           ON CONFLICT(voice_type, month) DO UPDATE SET
+               char_count = char_count + excluded.char_count""",
+        (voice_type, month, char_count),
+    )
+    await _db.commit()
+
+
+async def get_tts_char_usage(month: str | None = None) -> dict[str, int]:
+    from datetime import datetime
+    if month is None:
+        month = datetime.now(KST).strftime("%Y-%m")
+    async with _db.execute(
+        "SELECT voice_type, char_count FROM tts_char_usage WHERE month = ?",
+        (month,),
+    ) as cursor:
+        return {row[0]: row[1] async for row in cursor}

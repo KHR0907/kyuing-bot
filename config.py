@@ -45,16 +45,38 @@ DAILY_STATS_RETENTION_DAYS = int(os.getenv("DAILY_STATS_RETENTION_DAYS", "365"))
 LOG_PATH = os.getenv("LOG_PATH", "logs/app.log")
 LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
 
-# TTS 보이스 & 언어
-VOICES = {
+# TTS 엔진
+TTS_ENGINES = {
+    "supertonic": "Supertonic-2",
+    "google": "Google TTS",
+}
+
+# Supertonic 보이스
+SUPERTONIC_VOICES = {
     "M1": "남성 1", "M2": "남성 2", "M3": "남성 3", "M4": "남성 4", "M5": "남성 5",
     "F1": "여성 1", "F2": "여성 2", "F3": "여성 3", "F4": "여성 4", "F5": "여성 5",
 }
+
+# Google TTS
+GOOGLE_TTS_API_KEY = os.getenv("GOOGLE_TTS_API_KEY", "")
+
+# Google TTS 보이스 (Standard만 사용, 월 400만자 무료)
+GOOGLE_VOICES = {
+    "ko-KR-Standard-A": "여성 A",
+    "ko-KR-Standard-B": "남성 B",
+}
+
+GOOGLE_TTS_FREE_LIMIT = 4_000_000
+
+# 하위 호환용 (VOICES = 현재 기본 엔진의 보이스)
+VOICES = SUPERTONIC_VOICES
+
 LANGUAGES = {
     "ko": "한국어", "en": "English", "es": "Español", "pt": "Português", "fr": "Français",
 }
 
 DEFAULT_USER_SETTINGS = {
+    "engine": "supertonic",
     "voice": "M1",
     "speed": 1.0,
     "lang": "ko",

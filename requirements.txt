@@ -4,5 +4,6 @@ davey
 loguru
 python-dotenv
 supertonic
+google-cloud-texttospeech
 aiosqlite
 quart
