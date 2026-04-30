@@ -421,7 +421,10 @@
 
         {% elif active_section == 'pronunciation' %}
         {# ========================== Pronunciation Rules (Unified) ========================== #}
-        <section x-data="pronunciationApp({{ unified_rules|tojson }}, {{ guilds|tojson }})" x-cloak>
+        <script id="pronunciation-data" type="application/json">{{ unified_rules|tojson }}</script>
+        <script id="pronunciation-guilds" type="application/json">{{ guilds|tojson }}</script>
+        <script id="pronunciation-initial-guild" type="text/plain">{{ initial_guild_filter or '' }}</script>
+        <section x-data="pronunciationApp()" x-cloak>
             {# Toolbar #}
             <div class="card mb-4 flex flex-wrap items-center gap-3 border border-white/[0.06] p-4">
                 <div class="relative flex-1 min-w-[200px]">
@@ -513,10 +516,9 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="(rule, idx) in filtered" :key="rule.scope + '|' + (rule.guild_id || '0') + '|' + rule.keyword">
+                                <template x-for="rule in filtered" :key="rule.scope + '|' + (rule.guild_id || '0') + '|' + rule.keyword">
                                     <tr class="table-row border-b border-white/[0.03] last:border-0"
-                                        :class="(rule.hit_count === 0) && 'opacity-60'"
-                                        :id="'row-' + idx">
+                                        :class="(rule.hit_count === 0) && 'opacity-60'">
                                         <td class="px-5 py-3">
                                             <template x-if="rule.scope === 'global'">
                                                 <span class="badge bg-accent/10 text-accent-light">전역</span>
@@ -668,6 +670,26 @@
                 </div>
             </template>
 
+            {# Confirm dialog (custom, design-system aligned) #}
+            <template x-if="confirmState">
+                <div>
+                    <div class="modal-backdrop" @click="cancelConfirm()"></div>
+                    <div class="modal-panel" @keydown.escape.window="cancelConfirm()">
+                        <div class="border-b border-white/[0.06] px-6 py-4">
+                            <h2 class="text-[15px] font-semibold" x-text="confirmState.title"></h2>
+                        </div>
+                        <div class="space-y-3 p-6">
+                            <p class="text-sm leading-relaxed text-white/60" x-text="confirmState.message"></p>
+                            <div x-show="confirmState.detail" class="rounded-lg border border-white/[0.06] bg-surface-0/40 px-3 py-2 font-mono text-[12px] text-white/50" x-text="confirmState.detail"></div>
+                        </div>
+                        <div class="flex items-center justify-end gap-2 border-t border-white/[0.06] px-6 py-4">
+                            <button type="button" @click="cancelConfirm()" class="btn-secondary">취소</button>
+                            <button type="button" @click="acceptConfirm()" class="btn-danger !px-4 !py-2 !text-[13px]" x-text="confirmState.confirmLabel || '삭제'"></button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
             {# Toast #}
             <template x-if="toast">
                 <div class="toast" :class="toast.level" x-transition x-text="toast.message"></div>
@@ -715,8 +737,23 @@
                                 <span class="badge bg-mint/10 text-mint">{{ entry.guild_name or entry.guild_id }}</span>
                                 {% endif %}
                             </td>
-                            <td class="px-5 py-3 font-mono text-[13px] text-white/70">{{ entry.keyword }}</td>
-                            <td class="px-5 py-3 text-[13px] text-white/50">{{ entry.new_replacement or '—' }}</td>
+                            <td class="px-5 py-3 font-mono text-[13px] text-white/70">
+                                {% if entry.old_keyword %}
+                                <span class="text-white/30 line-through">{{ entry.old_keyword }}</span>
+                                <span class="mx-1 text-white/30">→</span>
+                                {% endif %}
+                                {{ entry.keyword }}
+                            </td>
+                            <td class="px-5 py-3 text-[13px] text-white/50">
+                                {% if entry.action == 'update' and entry.old_replacement and entry.old_replacement != entry.new_replacement %}
+                                <span class="text-white/25 line-through">{{ entry.old_replacement }}</span>
+                                <span class="mx-1 text-white/30">→</span>{{ entry.new_replacement }}
+                                {% elif entry.action == 'delete' %}
+                                <span class="text-white/40">{{ entry.old_replacement or '—' }}</span>
+                                {% else %}
+                                {{ entry.new_replacement or '—' }}
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                         {% if not audit_entries %}
@@ -732,7 +769,12 @@
 
 {% if active_section == 'pronunciation' %}
 <script>
-function pronunciationApp(initialRules, guilds) {
+function pronunciationApp() {
+    const initialRules = JSON.parse(document.getElementById('pronunciation-data').textContent || '[]');
+    const guilds = JSON.parse(document.getElementById('pronunciation-guilds').textContent || '[]');
+    const initialGuildFilter = (document.getElementById('pronunciation-initial-guild')?.textContent || '').trim()
+        || new URLSearchParams(window.location.search).get('guild')
+        || 'all';
     return {
         rules: initialRules.map(r => ({
             ...r,
@@ -742,12 +784,14 @@ function pronunciationApp(initialRules, guilds) {
         })),
         search: '',
         scopeFilter: 'all',
-        guildFilter: 'all',
+        guildFilter: initialGuildFilter || 'all',
         modalOpen: false,
         form: { scope: 'global', guild_id: '', keyword: '', replacement: '' },
         formError: '',
         toast: null,
         toastTimer: null,
+        confirmState: null,
+        _confirmResolver: null,
 
         get filtered() {
             const q = this.search.trim().toLowerCase();
@@ -793,7 +837,13 @@ function pronunciationApp(initialRules, guilds) {
             this.showToast('저장됨', 'success');
         },
         async deleteRule(rule) {
-            if (!confirm(`"${rule.keyword}" 규칙을 삭제할까요?`)) return;
+            const ok = await this.confirm({
+                title: '발음 규칙 삭제',
+                message: '이 규칙을 삭제하면 즉시 적용됩니다. 되돌릴 수 없습니다.',
+                detail: `${rule.keyword}  →  ${rule.replacement}`,
+                confirmLabel: '삭제',
+            });
+            if (!ok) return;
             const body = { scope: rule.scope, guild_id: rule.guild_id, keyword: rule.keyword };
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'DELETE',
@@ -873,6 +923,19 @@ function pronunciationApp(initialRules, guilds) {
             this.toast = { message, level };
             clearTimeout(this.toastTimer);
             this.toastTimer = setTimeout(() => { this.toast = null; }, 2400);
+        },
+
+        confirm(opts) {
+            this.confirmState = { title: opts.title || '확인', message: opts.message || '', detail: opts.detail || '', confirmLabel: opts.confirmLabel || '확인' };
+            return new Promise(resolve => { this._confirmResolver = resolve; });
+        },
+        acceptConfirm() {
+            const r = this._confirmResolver; this.confirmState = null; this._confirmResolver = null;
+            if (r) r(true);
+        },
+        cancelConfirm() {
+            const r = this._confirmResolver; this.confirmState = null; this._confirmResolver = null;
+            if (r) r(false);
         },
     };
 }

@@ -1,15 +1,17 @@
+import asyncio
 import csv
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from quart import Response, current_app, jsonify, redirect, render_template, request, session, url_for
 
 import database
 from config import DASHBOARD_ADMIN_IDS
+from database import KST
 from web.app import get_dashboard_owner_ids, is_dashboard_owner, login_required
 
 
-KST = timezone(timedelta(hours=9))
+MAX_CSV_BYTES = 5 * 1024 * 1024  # 5MB
 
 
 def _format_relative(iso_str: str | None) -> str:
@@ -24,8 +26,6 @@ def _format_relative(iso_str: str | None) -> str:
     now = datetime.now(KST)
     diff = now - ts
     seconds = int(diff.total_seconds())
-    if seconds < 0:
-        return "방금"
     if seconds < 60:
         return "방금"
     if seconds < 3600:
@@ -59,6 +59,15 @@ def register_routes(app):
                 return "알 수 없는 사용자"
         return f"{user.name}#{user.discriminator}" if user.discriminator != "0" else user.name
 
+    async def resolve_user_labels_bulk(bot, user_ids: set[int]) -> dict[int, str]:
+        """unique user_ids만 병렬로 resolve. fetch_user의 N+1 회피."""
+        ids = list(user_ids)
+        labels = await asyncio.gather(
+            *(resolve_user_label(bot, uid) for uid in ids),
+            return_exceptions=False,
+        )
+        return dict(zip(ids, labels))
+
     def _actor_id() -> int:
         raw = session.get("user_id")
         return int(raw) if raw else 0
@@ -67,14 +76,28 @@ def register_routes(app):
         today = metrics.get("daily_requests", 0)
         yesterday = metrics.get("daily_requests_yesterday", 0)
         signals = []
+
         if yesterday >= 20 and today < yesterday * 0.5:
+            drop_pct = int((1 - today / yesterday) * 100)
             signals.append({
                 "level": "warn",
-                "label": f"오늘 요청이 어제 대비 {int((1 - today / yesterday) * 100)}% 감소",
+                "label": f"오늘 요청이 어제 대비 {drop_pct}% 감소",
             })
-        empty_guilds = [g for g in guilds if g["active_channels"] == 0]
-        if empty_guilds and len(empty_guilds) == len(guilds) and guilds:
-            signals.append({"level": "warn", "label": "활성 TTS 채널이 0개"})
+
+        if guilds:
+            empty_count = sum(1 for g in guilds if g["active_channels"] == 0)
+            empty_ratio = empty_count / len(guilds)
+            if empty_ratio >= 0.5:
+                signals.append({
+                    "level": "warn",
+                    "label": f"{empty_count}/{len(guilds)} 서버 미설정 ({int(empty_ratio * 100)}%)",
+                })
+            elif empty_ratio >= 0.3:
+                signals.append({
+                    "level": "warn",
+                    "label": f"{empty_count}개 서버 미설정",
+                })
+
         if not signals:
             return {"level": "ok", "label": "정상 운영 중", "signals": []}
         worst = "error" if any(s["level"] == "error" for s in signals) else "warn"
@@ -125,7 +148,9 @@ def register_routes(app):
             if owner_id is not None:
                 bot.application_owner_id = owner_id
 
-        for admin_id in sorted(int(admin_id) for admin_id in all_admin_ids):
+        admin_id_list = sorted(int(admin_id) for admin_id in all_admin_ids)
+        admin_labels = await resolve_user_labels_bulk(bot, set(admin_id_list))
+        for admin_id in admin_id_list:
             source = "admin"
             source_label = "대시보드 관리자"
             removable = admin_id in stored_admin_ids
@@ -140,7 +165,7 @@ def register_routes(app):
             admin_entries.append(
                 {
                     "user_id": admin_id,
-                    "display_name": await resolve_user_label(bot, admin_id),
+                    "display_name": admin_labels.get(admin_id, "알 수 없는 사용자"),
                     "source": source,
                     "source_label": source_label,
                     "removable": removable,
@@ -169,7 +194,7 @@ def register_routes(app):
 
         guild_name_map = {g["id"]: g["name"] for g in guilds}
 
-        # 통합 규칙 리스트 (table 렌더링용) + 충돌 마킹
+        # 통합 규칙 리스트 + 충돌 마킹
         global_keyword_set = {item["keyword"] for item in global_keyword_aliases}
         guild_keyword_set = {(it["guild_id"], it["keyword"]) for it in guild_keyword_aliases}
 
@@ -209,11 +234,17 @@ def register_routes(app):
         audit_entries = []
         if section == "audit":
             raw_audit = await database.get_audit_log(limit=200)
+            unique_actors = {e["actor_id"] for e in raw_audit if e["actor_id"]}
+            actor_labels = await resolve_user_labels_bulk(bot, unique_actors)
             for entry in raw_audit:
-                entry["actor_label"] = await resolve_user_label(bot, entry["actor_id"]) if entry["actor_id"] else "system"
+                aid = entry["actor_id"]
+                entry["actor_label"] = actor_labels.get(aid, "system") if aid else "system"
                 entry["guild_name"] = guild_name_map.get(entry["guild_id"]) if entry["guild_id"] else None
                 entry["timestamp_label"] = _format_relative(entry["timestamp"])
                 audit_entries.append(entry)
+
+        # 서버 상세 → 대시보드 진입 시 guildFilter 자동 적용용
+        initial_guild_filter = (request.args.get("guild") or "").strip()
 
         return await render_template(
             "dashboard.html",
@@ -228,6 +259,7 @@ def register_routes(app):
             notice=pop_notice(),
             health=health,
             audit_entries=audit_entries,
+            initial_guild_filter=initial_guild_filter,
         )
 
     @app.route("/servers/<int:guild_id>")
@@ -321,7 +353,7 @@ def register_routes(app):
 
     # ───────────────────────── Pronunciation: JSON API ─────────────────────────
 
-    async def _validate_rule_payload(data: dict) -> tuple[dict | None, str | None]:
+    def _validate_rule_payload(data: dict) -> tuple[dict | None, str | None]:
         scope = (data.get("scope") or "").strip()
         keyword = (data.get("keyword") or "").strip()
         replacement = (data.get("replacement") or "").strip()
@@ -348,25 +380,22 @@ def register_routes(app):
     @login_required
     async def api_create_rule():
         data = await request.get_json(silent=True) or {}
-        payload, err = await _validate_rule_payload(data)
+        payload, err = _validate_rule_payload(data)
         if err:
             return jsonify({"error": err}), 400
 
+        actor = _actor_id()
         if payload["scope"] == "global":
-            ok = await database.add_global_keyword_alias(payload["keyword"], payload["replacement"])
+            ok = await database.add_global_keyword_alias(
+                payload["keyword"], payload["replacement"], audit_actor=actor,
+            )
         else:
-            ok = await database.add_guild_keyword_alias(payload["guild_id"], payload["keyword"], payload["replacement"])
+            ok = await database.add_guild_keyword_alias(
+                payload["guild_id"], payload["keyword"], payload["replacement"],
+                audit_actor=actor,
+            )
         if not ok:
             return jsonify({"error": f"이미 등록된 키워드: {payload['keyword']}"}), 409
-
-        await database.write_audit(
-            actor_id=_actor_id(),
-            action="add",
-            scope=payload["scope"],
-            guild_id=payload["guild_id"],
-            keyword=payload["keyword"],
-            new_replacement=payload["replacement"],
-        )
         return jsonify({"ok": True}), 201
 
     @app.route("/api/pronunciation/rules", methods=["PATCH"])
@@ -376,32 +405,27 @@ def register_routes(app):
         original_keyword = (data.get("original_keyword") or "").strip()
         if not original_keyword:
             return jsonify({"error": "original_keyword가 필요합니다."}), 400
-        payload, err = await _validate_rule_payload(data)
+        payload, err = _validate_rule_payload(data)
         if err:
             return jsonify({"error": err}), 400
 
+        actor = _actor_id()
         if payload["scope"] == "global":
             result = await database.update_global_keyword_alias(
-                original_keyword, payload["keyword"], payload["replacement"]
+                original_keyword, payload["keyword"], payload["replacement"],
+                audit_actor=actor,
             )
         else:
             result = await database.update_guild_keyword_alias(
-                payload["guild_id"], original_keyword, payload["keyword"], payload["replacement"]
+                payload["guild_id"], original_keyword,
+                payload["keyword"], payload["replacement"],
+                audit_actor=actor,
             )
 
         if result == "not_found":
             return jsonify({"error": "수정할 키워드를 찾을 수 없습니다."}), 404
         if result == "conflict":
             return jsonify({"error": f"이미 등록된 키워드: {payload['keyword']}"}), 409
-
-        await database.write_audit(
-            actor_id=_actor_id(),
-            action="update",
-            scope=payload["scope"],
-            guild_id=payload["guild_id"],
-            keyword=payload["keyword"],
-            new_replacement=payload["replacement"],
-        )
         return jsonify({"ok": True})
 
     @app.route("/api/pronunciation/rules", methods=["DELETE"])
@@ -413,59 +437,23 @@ def register_routes(app):
         if scope not in ("global", "guild") or not keyword:
             return jsonify({"error": "scope와 keyword가 필요합니다."}), 400
 
-        guild_id = None
+        actor = _actor_id()
         if scope == "guild":
             try:
                 guild_id = int(data.get("guild_id"))
             except (TypeError, ValueError):
                 return jsonify({"error": "guild_id가 필요합니다."}), 400
-            removed = await database.remove_guild_keyword_alias(guild_id, keyword)
+            removed = await database.remove_guild_keyword_alias(
+                guild_id, keyword, audit_actor=actor,
+            )
         else:
-            removed = await database.remove_global_keyword_alias(keyword)
+            removed = await database.remove_global_keyword_alias(
+                keyword, audit_actor=actor,
+            )
 
         if not removed:
             return jsonify({"error": "삭제할 키워드를 찾을 수 없습니다."}), 404
-
-        await database.write_audit(
-            actor_id=_actor_id(),
-            action="delete",
-            scope=scope,
-            guild_id=guild_id,
-            keyword=keyword,
-        )
         return jsonify({"ok": True})
-
-    @app.route("/api/pronunciation/preview", methods=["POST"])
-    @login_required
-    async def api_preview():
-        data = await request.get_json(silent=True) or {}
-        text = (data.get("text") or "").strip()
-        scope = (data.get("scope") or "global").strip()
-        try:
-            guild_id = int(data.get("guild_id")) if data.get("guild_id") not in (None, "") else None
-        except (TypeError, ValueError):
-            guild_id = None
-
-        if not text:
-            return jsonify({"original": "", "resolved": "", "scope": None})
-
-        # 미리보기 계산: scope 가 guild면 해당 서버 우선, 아니면 global만
-        if scope == "guild" and guild_id is not None:
-            resolved, hit_scope = database.resolve_keyword_replacement(guild_id, text)
-        else:
-            # global-only 미리보기: guild override 우회
-            global_repl = database._global_keyword_cache.get(text)
-            if global_repl is not None:
-                resolved, hit_scope = global_repl, "global"
-            else:
-                resolved, hit_scope = text, None
-
-        return jsonify({
-            "original": text,
-            "resolved": resolved,
-            "scope": hit_scope,
-            "matched": hit_scope is not None,
-        })
 
     @app.route("/api/pronunciation/audit")
     @login_required
@@ -520,60 +508,74 @@ def register_routes(app):
             set_notice("CSV 파일을 선택해주세요.", "error")
             return redirect_pronunciation()
 
+        raw = upload.read()
+        if len(raw) > MAX_CSV_BYTES:
+            mb = MAX_CSV_BYTES // (1024 * 1024)
+            set_notice(f"CSV는 최대 {mb}MB까지 업로드 가능합니다.", "error")
+            return redirect_pronunciation()
+
         try:
-            content = upload.read().decode("utf-8-sig")
+            content = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
             set_notice("CSV는 UTF-8로 인코딩되어야 합니다.", "error")
             return redirect_pronunciation()
 
         reader = csv.DictReader(io.StringIO(content))
-        added = 0
-        skipped = 0
-        actor_id = _actor_id()
+        valid_rows = []
+        skipped_pre = 0
+        bot = current_app.bot
         for row in reader:
             scope = (row.get("scope") or "").strip()
             keyword = (row.get("keyword") or "").strip()
             replacement = (row.get("replacement") or "").strip()
             if scope not in ("global", "guild") or not keyword or not replacement:
-                skipped += 1
+                skipped_pre += 1
                 continue
             if scope == "guild":
                 try:
                     guild_id = int(row.get("guild_id") or "")
                 except ValueError:
-                    skipped += 1
+                    skipped_pre += 1
                     continue
-                if current_app.bot.get_guild(guild_id) is None:
-                    skipped += 1
+                if bot.get_guild(guild_id) is None:
+                    skipped_pre += 1
                     continue
-                ok = await database.add_guild_keyword_alias(guild_id, keyword, replacement)
-                if ok:
-                    await database.write_audit(
-                        actor_id=actor_id, action="add", scope="guild",
-                        guild_id=guild_id, keyword=keyword, new_replacement=replacement,
-                    )
-                    added += 1
-                else:
-                    skipped += 1
+                valid_rows.append({"scope": "guild", "guild_id": guild_id, "keyword": keyword, "replacement": replacement})
             else:
-                ok = await database.add_global_keyword_alias(keyword, replacement)
-                if ok:
-                    await database.write_audit(
-                        actor_id=actor_id, action="add", scope="global",
-                        keyword=keyword, new_replacement=replacement,
-                    )
-                    added += 1
-                else:
-                    skipped += 1
+                valid_rows.append({"scope": "global", "guild_id": None, "keyword": keyword, "replacement": replacement})
 
-        set_notice(f"CSV import 완료: {added}개 추가 / {skipped}개 건너뜀", "success")
+        added, skipped_db = await database.import_keyword_aliases_batch(valid_rows, _actor_id())
+        total_skipped = skipped_pre + skipped_db
+        set_notice(f"CSV import 완료: {added}개 추가 / {total_skipped}개 건너뜀", "success")
         return redirect_pronunciation()
 
     # ───────────────────────── Form fallback (legacy compat) ─────────────────────────
 
+    async def _form_delete_global(keyword: str):
+        if not keyword:
+            set_notice("삭제할 전역 키워드를 찾을 수 없습니다.", "error")
+            return redirect_pronunciation()
+        removed = await database.remove_global_keyword_alias(keyword, audit_actor=_actor_id())
+        if not removed:
+            set_notice("삭제할 전역 키워드를 찾을 수 없습니다.", "error")
+            return redirect_pronunciation()
+        set_notice(f"전역 키워드 `{keyword}` 를 삭제했습니다.", "success")
+        return redirect_pronunciation()
+
+    async def _form_delete_guild(guild_id: int, keyword: str):
+        if not keyword:
+            set_notice("삭제할 서버 키워드를 찾을 수 없습니다.", "error")
+            return redirect_pronunciation()
+        removed = await database.remove_guild_keyword_alias(guild_id, keyword, audit_actor=_actor_id())
+        if not removed:
+            set_notice("삭제할 서버 키워드를 찾을 수 없습니다.", "error")
+            return redirect_pronunciation()
+        set_notice(f"서버 키워드 `{keyword}` 를 삭제했습니다.", "success")
+        return redirect_pronunciation()
+
     @app.route("/keyword-aliases/global", methods=["POST"])
     @login_required
-    async def add_global_keyword_alias():
+    async def add_global_keyword_alias_route():
         form = await request.form
         keyword = (form.get("keyword") or "").strip()
         replacement = (form.get("replacement") or "").strip()
@@ -582,21 +584,17 @@ def register_routes(app):
             set_notice("전역 키워드와 치환 문장을 모두 입력해야 합니다.", "error")
             return redirect_pronunciation()
 
-        added = await database.add_global_keyword_alias(keyword, replacement)
+        added = await database.add_global_keyword_alias(keyword, replacement, audit_actor=_actor_id())
         if not added:
             set_notice(f"전역 키워드 `{keyword}` 는 이미 등록되어 있습니다.", "error")
             return redirect_pronunciation()
 
-        await database.write_audit(
-            actor_id=_actor_id(), action="add", scope="global",
-            keyword=keyword, new_replacement=replacement,
-        )
         set_notice(f"전역 키워드 `{keyword}` 를 추가했습니다.", "success")
         return redirect_pronunciation()
 
     @app.route("/keyword-aliases/global/update", methods=["POST"])
     @login_required
-    async def update_global_keyword_alias():
+    async def update_global_keyword_alias_route():
         form = await request.form
         original_keyword = (form.get("original_keyword") or "").strip()
         keyword = (form.get("keyword") or "").strip()
@@ -606,7 +604,9 @@ def register_routes(app):
             set_notice("수정할 전역 키워드와 치환 문장을 모두 입력해야 합니다.", "error")
             return redirect_pronunciation()
 
-        result = await database.update_global_keyword_alias(original_keyword, keyword, replacement)
+        result = await database.update_global_keyword_alias(
+            original_keyword, keyword, replacement, audit_actor=_actor_id(),
+        )
         if result == "not_found":
             set_notice("수정할 전역 키워드를 찾을 수 없습니다.", "error")
             return redirect_pronunciation()
@@ -614,10 +614,6 @@ def register_routes(app):
             set_notice(f"전역 키워드 `{keyword}` 는 이미 등록되어 있습니다.", "error")
             return redirect_pronunciation()
 
-        await database.write_audit(
-            actor_id=_actor_id(), action="update", scope="global",
-            keyword=keyword, new_replacement=replacement,
-        )
         set_notice(f"전역 키워드 `{original_keyword}` 를 수정했습니다.", "success")
         return redirect_pronunciation()
 
@@ -625,29 +621,16 @@ def register_routes(app):
     @login_required
     async def delete_global_keyword_alias_form():
         form = await request.form
-        keyword = (form.get("keyword") or "").strip()
-        if not keyword:
-            set_notice("삭제할 전역 키워드를 찾을 수 없습니다.", "error")
-            return redirect_pronunciation()
-        return await delete_global_keyword_alias(keyword)
+        return await _form_delete_global((form.get("keyword") or "").strip())
 
     @app.route("/keyword-aliases/global/<path:keyword>/delete", methods=["POST"])
     @login_required
-    async def delete_global_keyword_alias(keyword: str):
-        removed = await database.remove_global_keyword_alias(keyword)
-        if not removed:
-            set_notice("삭제할 전역 키워드를 찾을 수 없습니다.", "error")
-            return redirect_pronunciation()
-
-        await database.write_audit(
-            actor_id=_actor_id(), action="delete", scope="global", keyword=keyword,
-        )
-        set_notice(f"전역 키워드 `{keyword}` 를 삭제했습니다.", "success")
-        return redirect_pronunciation()
+    async def delete_global_keyword_alias_path(keyword: str):
+        return await _form_delete_global(keyword)
 
     @app.route("/keyword-aliases/guild", methods=["POST"])
     @login_required
-    async def add_guild_keyword_alias():
+    async def add_guild_keyword_alias_route():
         form = await request.form
         raw_guild_id = (form.get("guild_id") or "").strip()
         keyword = (form.get("keyword") or "").strip()
@@ -665,21 +648,19 @@ def register_routes(app):
             set_notice("선택한 서버를 찾을 수 없습니다.", "error")
             return redirect_pronunciation()
 
-        added = await database.add_guild_keyword_alias(guild_id, keyword, replacement)
+        added = await database.add_guild_keyword_alias(
+            guild_id, keyword, replacement, audit_actor=_actor_id(),
+        )
         if not added:
             set_notice(f"해당 서버에는 `{keyword}` 키워드가 이미 등록되어 있습니다.", "error")
             return redirect_pronunciation()
 
-        await database.write_audit(
-            actor_id=_actor_id(), action="add", scope="guild",
-            guild_id=guild_id, keyword=keyword, new_replacement=replacement,
-        )
         set_notice(f"서버 키워드 `{keyword}` 를 추가했습니다.", "success")
         return redirect_pronunciation()
 
     @app.route("/keyword-aliases/guild/update", methods=["POST"])
     @login_required
-    async def update_guild_keyword_alias():
+    async def update_guild_keyword_alias_route():
         form = await request.form
         raw_guild_id = (form.get("guild_id") or "").strip()
         original_keyword = (form.get("original_keyword") or "").strip()
@@ -691,7 +672,9 @@ def register_routes(app):
             return redirect_pronunciation()
 
         guild_id = int(raw_guild_id)
-        result = await database.update_guild_keyword_alias(guild_id, original_keyword, keyword, replacement)
+        result = await database.update_guild_keyword_alias(
+            guild_id, original_keyword, keyword, replacement, audit_actor=_actor_id(),
+        )
         if result == "not_found":
             set_notice("수정할 서버 키워드를 찾을 수 없습니다.", "error")
             return redirect_pronunciation()
@@ -699,10 +682,6 @@ def register_routes(app):
             set_notice(f"해당 서버에는 `{keyword}` 키워드가 이미 등록되어 있습니다.", "error")
             return redirect_pronunciation()
 
-        await database.write_audit(
-            actor_id=_actor_id(), action="update", scope="guild",
-            guild_id=guild_id, keyword=keyword, new_replacement=replacement,
-        )
         set_notice(f"서버 키워드 `{original_keyword}` 를 수정했습니다.", "success")
         return redirect_pronunciation()
 
@@ -712,22 +691,12 @@ def register_routes(app):
         form = await request.form
         raw_guild_id = (form.get("guild_id") or "").strip()
         keyword = (form.get("keyword") or "").strip()
-        if not raw_guild_id.isdigit() or not keyword:
+        if not raw_guild_id.isdigit():
             set_notice("삭제할 서버 키워드를 찾을 수 없습니다.", "error")
             return redirect_pronunciation()
-        return await delete_guild_keyword_alias(int(raw_guild_id), keyword)
+        return await _form_delete_guild(int(raw_guild_id), keyword)
 
     @app.route("/keyword-aliases/guild/<int:guild_id>/<path:keyword>/delete", methods=["POST"])
     @login_required
-    async def delete_guild_keyword_alias(guild_id: int, keyword: str):
-        removed = await database.remove_guild_keyword_alias(guild_id, keyword)
-        if not removed:
-            set_notice("삭제할 서버 키워드를 찾을 수 없습니다.", "error")
-            return redirect_pronunciation()
-
-        await database.write_audit(
-            actor_id=_actor_id(), action="delete", scope="guild",
-            guild_id=guild_id, keyword=keyword,
-        )
-        set_notice(f"서버 키워드 `{keyword}` 를 삭제했습니다.", "success")
-        return redirect_pronunciation()
+    async def delete_guild_keyword_alias_path(guild_id: int, keyword: str):
+        return await _form_delete_guild(guild_id, keyword)

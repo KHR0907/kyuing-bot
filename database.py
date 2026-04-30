@@ -14,6 +14,9 @@ _db: aiosqlite.Connection | None = None
 _tts_channels_cache: dict[int, list[int]] = {}
 _global_keyword_cache: dict[str, str] = {}
 _guild_keyword_cache: dict[int, dict[str, str]] = {}
+# 키워드 hit 누적 (scope, guild_id|None, keyword) -> (count, last_seen_iso)
+# on_message 핫패스에서 commit하지 않고 메모리에만 누적, flush_keyword_hits()로 일괄 반영
+_pending_hits: dict[tuple[str, int | None, str], tuple[int, str]] = {}
 KST = ZoneInfo("Asia/Seoul")
 
 
@@ -99,6 +102,7 @@ async def init_db():
             scope TEXT NOT NULL,
             guild_id INTEGER,
             keyword TEXT NOT NULL,
+            old_keyword TEXT,
             old_replacement TEXT,
             new_replacement TEXT
         )
@@ -124,6 +128,10 @@ async def init_db():
             await _db.execute(f"ALTER TABLE {table} ADD COLUMN hit_count INTEGER DEFAULT 0")
         if "last_seen_at" not in cols:
             await _db.execute(f"ALTER TABLE {table} ADD COLUMN last_seen_at TEXT")
+    async with _db.execute("PRAGMA table_info(pronunciation_audit)") as cursor:
+        audit_cols = {row[1] async for row in cursor}
+    if "old_keyword" not in audit_cols:
+        await _db.execute("ALTER TABLE pronunciation_audit ADD COLUMN old_keyword TEXT")
     await _db.commit()
 
     await purge_old_daily_stats()
@@ -280,56 +288,84 @@ def resolve_keyword_replacement(guild_id: int, text: str) -> tuple[str, str | No
     return text, None
 
 
-async def record_keyword_hit(scope: str, keyword: str, guild_id: int | None = None):
-    now = datetime.now(KST).isoformat()
-    if scope == "guild" and guild_id is not None:
-        await _db.execute(
-            """
-            UPDATE guild_keyword_aliases
-            SET hit_count = hit_count + 1, last_seen_at = ?
-            WHERE guild_id = ? AND keyword = ?
-            """,
-            (now, guild_id, keyword),
-        )
-    elif scope == "global":
-        await _db.execute(
-            """
-            UPDATE global_keyword_aliases
-            SET hit_count = hit_count + 1, last_seen_at = ?
-            WHERE keyword = ?
-            """,
-            (now, keyword),
-        )
-    else:
+def record_keyword_hit(scope: str, keyword: str, guild_id: int | None = None) -> None:
+    """on_message 핫패스용. DB 쓰기 없이 메모리에만 누적. 주기적으로 flush_keyword_hits()가 일괄 반영."""
+    if scope not in ("global", "guild"):
         return
-    await _db.commit()
+    if scope == "guild" and guild_id is None:
+        return
+    key = (scope, guild_id if scope == "guild" else None, keyword)
+    now_iso = datetime.now(KST).isoformat()
+    prev_count = _pending_hits.get(key, (0, now_iso))[0]
+    _pending_hits[key] = (prev_count + 1, now_iso)
 
 
-async def write_audit(
+async def flush_keyword_hits() -> int:
+    """누적된 hit를 DB에 일괄 반영. 단일 트랜잭션. 반환: flush된 키워드 수."""
+    global _pending_hits
+    if not _pending_hits:
+        return 0
+    pending = _pending_hits
+    _pending_hits = {}
+
+    try:
+        for (scope, guild_id, keyword), (count, last_seen) in pending.items():
+            if scope == "guild":
+                await _db.execute(
+                    """
+                    UPDATE guild_keyword_aliases
+                    SET hit_count = hit_count + ?, last_seen_at = ?
+                    WHERE guild_id = ? AND keyword = ?
+                    """,
+                    (count, last_seen, guild_id, keyword),
+                )
+            else:
+                await _db.execute(
+                    """
+                    UPDATE global_keyword_aliases
+                    SET hit_count = hit_count + ?, last_seen_at = ?
+                    WHERE keyword = ?
+                    """,
+                    (count, last_seen, keyword),
+                )
+        await _db.commit()
+        return len(pending)
+    except Exception:
+        # 실패 시 누적분 복원 (이후 재시도)
+        for k, (cnt, ts) in pending.items():
+            existing = _pending_hits.get(k, (0, ts))
+            _pending_hits[k] = (existing[0] + cnt, ts)
+        raise
+
+
+async def _write_audit(
     actor_id: int,
     action: str,
     scope: str,
     keyword: str,
     guild_id: int | None = None,
+    old_keyword: str | None = None,
     old_replacement: str | None = None,
     new_replacement: str | None = None,
 ):
+    """단일 트랜잭션에 audit row를 INSERT. 호출자가 commit 책임. None이면 audit 미기록."""
+    if actor_id is None:
+        return
     await _db.execute(
         """
         INSERT INTO pronunciation_audit
-            (actor_id, action, scope, guild_id, keyword, old_replacement, new_replacement)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (actor_id, action, scope, guild_id, keyword, old_keyword, old_replacement, new_replacement)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (actor_id, action, scope, guild_id, keyword, old_replacement, new_replacement),
+        (actor_id, action, scope, guild_id, keyword, old_keyword, old_replacement, new_replacement),
     )
-    await _db.commit()
 
 
 async def get_audit_log(limit: int = 100) -> list[dict]:
     async with _db.execute(
         """
         SELECT id, timestamp, actor_id, action, scope, guild_id, keyword,
-               old_replacement, new_replacement
+               old_keyword, old_replacement, new_replacement
         FROM pronunciation_audit
         ORDER BY id DESC
         LIMIT ?
@@ -345,8 +381,9 @@ async def get_audit_log(limit: int = 100) -> list[dict]:
                 "scope": row[4],
                 "guild_id": row[5],
                 "keyword": row[6],
-                "old_replacement": row[7],
-                "new_replacement": row[8],
+                "old_keyword": row[7],
+                "old_replacement": row[8],
+                "new_replacement": row[9],
             }
             async for row in cursor
         ]
@@ -372,39 +409,64 @@ async def get_global_keyword_aliases() -> list[dict]:
         ]
 
 
-async def add_global_keyword_alias(keyword: str, replacement: str) -> bool:
+async def add_global_keyword_alias(
+    keyword: str, replacement: str, *, audit_actor: int | None = None,
+) -> bool:
     try:
         await _db.execute(
             "INSERT INTO global_keyword_aliases (keyword, replacement) VALUES (?, ?)",
             (keyword, replacement),
         )
-        await _db.commit()
-        _global_keyword_cache[keyword] = replacement
-        return True
     except aiosqlite.IntegrityError:
+        await _db.rollback()
+        return False
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="add", scope="global",
+            keyword=keyword, new_replacement=replacement,
+        )
+    await _db.commit()
+    _global_keyword_cache[keyword] = replacement
+    return True
+
+
+async def remove_global_keyword_alias(
+    keyword: str, *, audit_actor: int | None = None,
+) -> bool:
+    async with _db.execute(
+        "SELECT replacement FROM global_keyword_aliases WHERE keyword = ?",
+        (keyword,),
+    ) as cursor:
+        existing = await cursor.fetchone()
+    if existing is None:
         return False
 
-
-async def remove_global_keyword_alias(keyword: str) -> bool:
-    cursor = await _db.execute(
+    await _db.execute(
         "DELETE FROM global_keyword_aliases WHERE keyword = ?",
         (keyword,),
     )
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="delete", scope="global",
+            keyword=keyword, old_replacement=existing[0],
+        )
     await _db.commit()
-    if cursor.rowcount > 0:
-        _global_keyword_cache.pop(keyword, None)
-        return True
-    return False
+    _global_keyword_cache.pop(keyword, None)
+    return True
 
 
-async def update_global_keyword_alias(original_keyword: str, keyword: str, replacement: str) -> str:
+async def update_global_keyword_alias(
+    original_keyword: str, keyword: str, replacement: str,
+    *, audit_actor: int | None = None,
+) -> str:
     async with _db.execute(
-        "SELECT 1 FROM global_keyword_aliases WHERE keyword = ?",
+        "SELECT keyword, replacement FROM global_keyword_aliases WHERE keyword = ?",
         (original_keyword,),
     ) as cursor:
         existing = await cursor.fetchone()
     if existing is None:
         return "not_found"
+    old_kw, old_repl = existing[0], existing[1]
 
     try:
         await _db.execute(
@@ -415,9 +477,19 @@ async def update_global_keyword_alias(original_keyword: str, keyword: str, repla
             """,
             (keyword, replacement, original_keyword),
         )
-        await _db.commit()
     except aiosqlite.IntegrityError:
+        await _db.rollback()
         return "conflict"
+
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="update", scope="global",
+            keyword=keyword,
+            old_keyword=old_kw if old_kw != keyword else None,
+            old_replacement=old_repl,
+            new_replacement=replacement,
+        )
+    await _db.commit()
 
     if original_keyword != keyword:
         _global_keyword_cache.pop(original_keyword, None)
@@ -468,42 +540,68 @@ async def get_guild_keyword_aliases_for(guild_id: int) -> list[dict]:
         ]
 
 
-async def add_guild_keyword_alias(guild_id: int, keyword: str, replacement: str) -> bool:
+async def add_guild_keyword_alias(
+    guild_id: int, keyword: str, replacement: str, *, audit_actor: int | None = None,
+) -> bool:
     try:
         await _db.execute(
             "INSERT INTO guild_keyword_aliases (guild_id, keyword, replacement) VALUES (?, ?, ?)",
             (guild_id, keyword, replacement),
         )
-        await _db.commit()
-        _guild_keyword_cache.setdefault(guild_id, {})[keyword] = replacement
-        return True
     except aiosqlite.IntegrityError:
+        await _db.rollback()
+        return False
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="add", scope="guild",
+            guild_id=guild_id, keyword=keyword, new_replacement=replacement,
+        )
+    await _db.commit()
+    _guild_keyword_cache.setdefault(guild_id, {})[keyword] = replacement
+    return True
+
+
+async def remove_guild_keyword_alias(
+    guild_id: int, keyword: str, *, audit_actor: int | None = None,
+) -> bool:
+    async with _db.execute(
+        "SELECT replacement FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
+        (guild_id, keyword),
+    ) as cursor:
+        existing = await cursor.fetchone()
+    if existing is None:
         return False
 
-
-async def remove_guild_keyword_alias(guild_id: int, keyword: str) -> bool:
-    cursor = await _db.execute(
+    await _db.execute(
         "DELETE FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
         (guild_id, keyword),
     )
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="delete", scope="guild",
+            guild_id=guild_id, keyword=keyword, old_replacement=existing[0],
+        )
     await _db.commit()
-    if cursor.rowcount > 0:
-        guild_aliases = _guild_keyword_cache.get(guild_id, {})
-        guild_aliases.pop(keyword, None)
-        if not guild_aliases and guild_id in _guild_keyword_cache:
-            _guild_keyword_cache.pop(guild_id, None)
-        return True
-    return False
+
+    guild_aliases = _guild_keyword_cache.get(guild_id, {})
+    guild_aliases.pop(keyword, None)
+    if not guild_aliases and guild_id in _guild_keyword_cache:
+        _guild_keyword_cache.pop(guild_id, None)
+    return True
 
 
-async def update_guild_keyword_alias(guild_id: int, original_keyword: str, keyword: str, replacement: str) -> str:
+async def update_guild_keyword_alias(
+    guild_id: int, original_keyword: str, keyword: str, replacement: str,
+    *, audit_actor: int | None = None,
+) -> str:
     async with _db.execute(
-        "SELECT 1 FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
+        "SELECT keyword, replacement FROM guild_keyword_aliases WHERE guild_id = ? AND keyword = ?",
         (guild_id, original_keyword),
     ) as cursor:
         existing = await cursor.fetchone()
     if existing is None:
         return "not_found"
+    old_kw, old_repl = existing[0], existing[1]
 
     try:
         await _db.execute(
@@ -514,15 +612,67 @@ async def update_guild_keyword_alias(guild_id: int, original_keyword: str, keywo
             """,
             (keyword, replacement, guild_id, original_keyword),
         )
-        await _db.commit()
     except aiosqlite.IntegrityError:
+        await _db.rollback()
         return "conflict"
+
+    if audit_actor is not None:
+        await _write_audit(
+            actor_id=audit_actor, action="update", scope="guild",
+            guild_id=guild_id, keyword=keyword,
+            old_keyword=old_kw if old_kw != keyword else None,
+            old_replacement=old_repl,
+            new_replacement=replacement,
+        )
+    await _db.commit()
 
     guild_aliases = _guild_keyword_cache.setdefault(guild_id, {})
     if original_keyword != keyword:
         guild_aliases.pop(original_keyword, None)
     guild_aliases[keyword] = replacement
     return "updated"
+
+
+async def import_keyword_aliases_batch(
+    rows: list[dict], actor_id: int,
+) -> tuple[int, int]:
+    """CSV 일괄 import. 단일 트랜잭션으로 처리. 반환: (added, skipped)."""
+    added = 0
+    skipped = 0
+    for row in rows:
+        scope = row.get("scope")
+        keyword = row.get("keyword")
+        replacement = row.get("replacement")
+        guild_id = row.get("guild_id")
+        try:
+            if scope == "global":
+                await _db.execute(
+                    "INSERT INTO global_keyword_aliases (keyword, replacement) VALUES (?, ?)",
+                    (keyword, replacement),
+                )
+                await _write_audit(
+                    actor_id=actor_id, action="add", scope="global",
+                    keyword=keyword, new_replacement=replacement,
+                )
+                _global_keyword_cache[keyword] = replacement
+                added += 1
+            elif scope == "guild":
+                await _db.execute(
+                    "INSERT INTO guild_keyword_aliases (guild_id, keyword, replacement) VALUES (?, ?, ?)",
+                    (guild_id, keyword, replacement),
+                )
+                await _write_audit(
+                    actor_id=actor_id, action="add", scope="guild",
+                    guild_id=guild_id, keyword=keyword, new_replacement=replacement,
+                )
+                _guild_keyword_cache.setdefault(guild_id, {})[keyword] = replacement
+                added += 1
+            else:
+                skipped += 1
+        except aiosqlite.IntegrityError:
+            skipped += 1
+    await _db.commit()
+    return added, skipped
 
 
 async def purge_old_daily_stats(reference_day: date | None = None):

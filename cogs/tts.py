@@ -159,6 +159,8 @@ class TTSCog(commands.Cog):
     @app_commands.command(name="pronounce", description="이 텍스트가 어떻게 읽힐지 확인합니다")
     @app_commands.describe(text="확인할 메시지")
     async def cmd_pronounce(self, interaction: discord.Interaction, text: str):
+        # 미리보기는 통계에 영향 주지 않음 (record_keyword_hit 호출하지 않음).
+        # on_message만 실제 사용으로 카운트.
         guild_id = interaction.guild.id if interaction.guild else 0
         resolved, scope = database.resolve_keyword_replacement(guild_id, text.strip())
 

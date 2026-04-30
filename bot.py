@@ -40,6 +40,25 @@ async def refresh_dashboard_snapshot() -> int:
     return active_channel_count
 
 
+async def keyword_hits_flush_loop(interval_seconds: int = 60):
+    """키워드 hit 누적분을 주기적으로 DB에 flush. 핫패스 commit 회피."""
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            flushed = await database.flush_keyword_hits()
+            if flushed:
+                log.debug("키워드 hit flush: {}개 키워드", flushed)
+        except asyncio.CancelledError:
+            # 종료 직전 마지막 flush 시도
+            try:
+                await database.flush_keyword_hits()
+            except Exception as e:
+                log.warning("종료 시 키워드 hit flush 실패: {}", e)
+            raise
+        except Exception as e:
+            log.warning("키워드 hit flush 실패 (다음 주기에 재시도): {}", e)
+
+
 async def refresh_dashboard_owner_ids():
     owner_ids = set(config.DASHBOARD_ADMIN_IDS)
     owner_ids.update(await database.get_dashboard_admin_ids())
@@ -97,12 +116,10 @@ async def on_message(message):
                 text,
                 replaced_text,
             )
-            asyncio.create_task(
-                database.record_keyword_hit(
-                    replacement_scope,
-                    text,
-                    message.guild.id if replacement_scope == "guild" else None,
-                )
+            database.record_keyword_hit(
+                replacement_scope,
+                text,
+                message.guild.id if replacement_scope == "guild" else None,
             )
             text = replaced_text
 
@@ -190,6 +207,7 @@ async def main():
 
     quart_app = create_app(bot)
     web_task = None
+    flush_task = None
 
     try:
         async with bot:
@@ -197,8 +215,16 @@ async def main():
                 quart_app.run_task(host="0.0.0.0", port=config.WEB_PORT),
                 name="dashboard-web-server",
             )
+            flush_task = asyncio.create_task(
+                keyword_hits_flush_loop(),
+                name="keyword-hits-flush",
+            )
             await bot.start(config.DISCORD_TOKEN)
     finally:
+        if flush_task is not None:
+            flush_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await flush_task
         if web_task is not None:
             web_task.cancel()
             with suppress(asyncio.CancelledError):
