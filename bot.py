@@ -97,6 +97,13 @@ async def on_message(message):
                 text,
                 replaced_text,
             )
+            asyncio.create_task(
+                database.record_keyword_hit(
+                    replacement_scope,
+                    text,
+                    message.guild.id if replacement_scope == "guild" else None,
+                )
+            )
             text = replaced_text
 
         if not message.author.voice or not message.author.voice.channel:

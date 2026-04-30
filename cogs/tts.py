@@ -156,6 +156,29 @@ class TTSCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="pronounce", description="이 텍스트가 어떻게 읽힐지 확인합니다")
+    @app_commands.describe(text="확인할 메시지")
+    async def cmd_pronounce(self, interaction: discord.Interaction, text: str):
+        guild_id = interaction.guild.id if interaction.guild else 0
+        resolved, scope = database.resolve_keyword_replacement(guild_id, text.strip())
+
+        embed = discord.Embed(title="🔊 발음 미리보기", color=0x6c5ce7)
+        embed.add_field(name="입력", value=f"```{text[:200]}```", inline=False)
+        if scope:
+            embed.add_field(
+                name=f"치환됨 ({'서버 규칙' if scope == 'guild' else '전역 규칙'})",
+                value=f"```{resolved[:200]}```",
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="치환 없음",
+                value="이 메시지에 매칭되는 발음 규칙이 없습니다. 입력 그대로 읽힙니다.",
+                inline=False,
+            )
+        embed.set_footer(text="규칙 추가는 대시보드에서 가능합니다")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="usage", description="Google TTS 이번 달 사용량 확인")
     async def cmd_usage(self, interaction: discord.Interaction):
         usage = await database.get_tts_char_usage()

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}{{ guild.name }} - TTS Bot{% endblock %}
+{% block head %}
+<style>
+    .card {
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(18, 18, 26, 0.6);
+        backdrop-filter: blur(12px);
+        border-radius: 16px;
+    }
+    .badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .table-row { transition: background 0.15s; }
+    .table-row:hover { background: rgba(255,255,255,0.03); }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="mb-6 animate-fade-in">
+    <a href="/" class="mb-4 inline-flex items-center gap-1.5 text-[13px] text-white/40 transition hover:text-white/70">
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        대시보드
+    </a>
+    <div class="flex items-center gap-4">
+        {% if guild.icon_url %}
+        <img src="{{ guild.icon_url }}" alt="" class="h-14 w-14 rounded-2xl object-cover ring-1 ring-white/[0.08]">
+        {% else %}
+        <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-xl font-bold text-accent-light ring-1 ring-white/[0.08]">{{ guild.name[0] }}</div>
+        {% endif %}
+        <div class="flex-1">
+            <h1 class="text-2xl font-bold tracking-tight">{{ guild.name }}</h1>
+            <div class="mt-1 flex flex-wrap items-center gap-3 text-[13px] text-white/40">
+                <span class="font-mono text-[11px]">{{ guild.id }}</span>
+                <span>·</span>
+                <span>{{ guild.member_count }}명</span>
+                <span>·</span>
+                <span>TTS 채널 {{ tts_channel_count }}개</span>
+                {% if guild.voice_status %}
+                <span class="badge bg-mint/10 text-mint">
+                    <span class="mr-1.5 h-1.5 w-1.5 rounded-full bg-mint"></span>
+                    {{ guild.voice_status }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+{% if notice %}
+<section class="mb-6 rounded-xl border px-5 py-4 {% if notice.level == 'success' %}border-mint/20 bg-mint/[0.06] text-mint-light{% elif notice.level == 'error' %}border-coral/20 bg-coral/[0.06] text-coral-light{% else %}border-white/[0.08] bg-white/[0.03] text-white/60{% endif %}">
+    <span class="text-sm">{{ notice.message }}</span>
+</section>
+{% endif %}
+
+<section class="grid gap-6 xl:grid-cols-2">
+    <article class="card overflow-hidden">
+        <div class="border-b border-white/[0.06] px-6 py-4">
+            <h2 class="text-[15px] font-semibold">서버 전용 발음 규칙</h2>
+            <p class="mt-1 text-xs text-white/30">{{ guild_rules|length }}개 등록됨</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full">
+                <thead>
+                    <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
+                        <th class="px-5 py-3 text-left">키워드</th>
+                        <th class="px-5 py-3 text-left">치환</th>
+                        <th class="px-5 py-3 text-right">사용</th>
+                        <th class="px-5 py-3 text-left">최근</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in guild_rules %}
+                    <tr class="table-row border-b border-white/[0.03] last:border-0">
+                        <td class="px-5 py-3 font-mono text-[13px] text-mint">{{ r.keyword }}</td>
+                        <td class="px-5 py-3 text-sm text-white/80">{{ r.replacement }}</td>
+                        <td class="px-5 py-3 text-right text-sm tabular-nums {% if r.hit_count > 0 %}text-white/70{% else %}text-white/25{% endif %}">{{ r.hit_count }}</td>
+                        <td class="px-5 py-3 text-[12px] text-white/40">{{ r.last_seen_label }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not guild_rules %}
+                    <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-white/25">서버 전용 규칙이 없습니다</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <div class="border-t border-white/[0.06] px-6 py-3">
+            <a href="/?section=pronunciation&guild={{ guild.id }}" class="text-[12px] text-accent-light/70 hover:text-accent-light">규칙 추가하러 가기 →</a>
+        </div>
+    </article>
+
+    <article class="card overflow-hidden">
+        <div class="border-b border-white/[0.06] px-6 py-4">
+            <h2 class="text-[15px] font-semibold">상속받는 전역 규칙</h2>
+            <p class="mt-1 text-xs text-white/30">{{ global_rules|length }}개 적용 중 (서버 규칙으로 덮어쓰지 않은 항목)</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full">
+                <thead>
+                    <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
+                        <th class="px-5 py-3 text-left">키워드</th>
+                        <th class="px-5 py-3 text-left">치환</th>
+                        <th class="px-5 py-3 text-right">사용</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in global_rules %}
+                    <tr class="table-row border-b border-white/[0.03] last:border-0">
+                        <td class="px-5 py-3 font-mono text-[13px] text-accent-light">{{ r.keyword }}</td>
+                        <td class="px-5 py-3 text-sm text-white/80">{{ r.replacement }}</td>
+                        <td class="px-5 py-3 text-right text-sm tabular-nums {% if r.hit_count > 0 %}text-white/70{% else %}text-white/25{% endif %}">{{ r.hit_count }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not global_rules %}
+                    <tr><td colspan="3" class="px-6 py-8 text-center text-sm text-white/25">전역 규칙이 없습니다</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+{% endblock %}

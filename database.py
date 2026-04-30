@@ -74,7 +74,9 @@ async def init_db():
         CREATE TABLE IF NOT EXISTS global_keyword_aliases (
             keyword TEXT PRIMARY KEY,
             replacement TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            hit_count INTEGER DEFAULT 0,
+            last_seen_at TEXT
         )
     """)
     await _db.execute("""
@@ -83,9 +85,27 @@ async def init_db():
             keyword TEXT NOT NULL,
             replacement TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            hit_count INTEGER DEFAULT 0,
+            last_seen_at TEXT,
             PRIMARY KEY (guild_id, keyword)
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS pronunciation_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            actor_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            guild_id INTEGER,
+            keyword TEXT NOT NULL,
+            old_replacement TEXT,
+            new_replacement TEXT
+        )
+    """)
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON pronunciation_audit (timestamp DESC)"
+    )
     await _db.commit()
 
     # engine 컬럼 마이그레이션 (기존 DB 호환)
@@ -95,6 +115,16 @@ async def init_db():
         await _db.execute("ALTER TABLE user_settings ADD COLUMN engine TEXT DEFAULT 'supertonic'")
         await _db.commit()
         log.info("user_settings 테이블에 engine 컬럼 추가")
+
+    # hit_count/last_seen_at 컬럼 마이그레이션 (기존 DB 호환)
+    for table in ("global_keyword_aliases", "guild_keyword_aliases"):
+        async with _db.execute(f"PRAGMA table_info({table})") as cursor:
+            cols = {row[1] async for row in cursor}
+        if "hit_count" not in cols:
+            await _db.execute(f"ALTER TABLE {table} ADD COLUMN hit_count INTEGER DEFAULT 0")
+        if "last_seen_at" not in cols:
+            await _db.execute(f"ALTER TABLE {table} ADD COLUMN last_seen_at TEXT")
+    await _db.commit()
 
     await purge_old_daily_stats()
 
@@ -250,16 +280,94 @@ def resolve_keyword_replacement(guild_id: int, text: str) -> tuple[str, str | No
     return text, None
 
 
+async def record_keyword_hit(scope: str, keyword: str, guild_id: int | None = None):
+    now = datetime.now(KST).isoformat()
+    if scope == "guild" and guild_id is not None:
+        await _db.execute(
+            """
+            UPDATE guild_keyword_aliases
+            SET hit_count = hit_count + 1, last_seen_at = ?
+            WHERE guild_id = ? AND keyword = ?
+            """,
+            (now, guild_id, keyword),
+        )
+    elif scope == "global":
+        await _db.execute(
+            """
+            UPDATE global_keyword_aliases
+            SET hit_count = hit_count + 1, last_seen_at = ?
+            WHERE keyword = ?
+            """,
+            (now, keyword),
+        )
+    else:
+        return
+    await _db.commit()
+
+
+async def write_audit(
+    actor_id: int,
+    action: str,
+    scope: str,
+    keyword: str,
+    guild_id: int | None = None,
+    old_replacement: str | None = None,
+    new_replacement: str | None = None,
+):
+    await _db.execute(
+        """
+        INSERT INTO pronunciation_audit
+            (actor_id, action, scope, guild_id, keyword, old_replacement, new_replacement)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (actor_id, action, scope, guild_id, keyword, old_replacement, new_replacement),
+    )
+    await _db.commit()
+
+
+async def get_audit_log(limit: int = 100) -> list[dict]:
+    async with _db.execute(
+        """
+        SELECT id, timestamp, actor_id, action, scope, guild_id, keyword,
+               old_replacement, new_replacement
+        FROM pronunciation_audit
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ) as cursor:
+        return [
+            {
+                "id": row[0],
+                "timestamp": row[1],
+                "actor_id": row[2],
+                "action": row[3],
+                "scope": row[4],
+                "guild_id": row[5],
+                "keyword": row[6],
+                "old_replacement": row[7],
+                "new_replacement": row[8],
+            }
+            async for row in cursor
+        ]
+
+
 async def get_global_keyword_aliases() -> list[dict]:
     async with _db.execute(
         """
-        SELECT keyword, replacement
+        SELECT keyword, replacement, hit_count, last_seen_at, created_at
         FROM global_keyword_aliases
         ORDER BY created_at ASC, keyword ASC
         """
     ) as cursor:
         return [
-            {"keyword": row[0], "replacement": row[1]}
+            {
+                "keyword": row[0],
+                "replacement": row[1],
+                "hit_count": row[2] or 0,
+                "last_seen_at": row[3],
+                "created_at": row[4],
+            }
             async for row in cursor
         ]
 
@@ -320,13 +428,42 @@ async def update_global_keyword_alias(original_keyword: str, keyword: str, repla
 async def get_guild_keyword_aliases() -> list[dict]:
     async with _db.execute(
         """
-        SELECT guild_id, keyword, replacement
+        SELECT guild_id, keyword, replacement, hit_count, last_seen_at, created_at
         FROM guild_keyword_aliases
         ORDER BY guild_id ASC, created_at ASC, keyword ASC
         """
     ) as cursor:
         return [
-            {"guild_id": row[0], "keyword": row[1], "replacement": row[2]}
+            {
+                "guild_id": row[0],
+                "keyword": row[1],
+                "replacement": row[2],
+                "hit_count": row[3] or 0,
+                "last_seen_at": row[4],
+                "created_at": row[5],
+            }
+            async for row in cursor
+        ]
+
+
+async def get_guild_keyword_aliases_for(guild_id: int) -> list[dict]:
+    async with _db.execute(
+        """
+        SELECT keyword, replacement, hit_count, last_seen_at, created_at
+        FROM guild_keyword_aliases
+        WHERE guild_id = ?
+        ORDER BY created_at ASC, keyword ASC
+        """,
+        (guild_id,),
+    ) as cursor:
+        return [
+            {
+                "keyword": row[0],
+                "replacement": row[1],
+                "hit_count": row[2] or 0,
+                "last_seen_at": row[3],
+                "created_at": row[4],
+            }
             async for row in cursor
         ]
 

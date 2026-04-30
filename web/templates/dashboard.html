@@ -41,6 +41,7 @@
     .stat-card:nth-child(3)::after { background: #ffc048; }
     .bar-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.04); overflow: hidden; }
     .bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #6c5ce7, #a29bfe); transition: width 0.6s ease-out; }
+    .bar-fill.anomaly { background: linear-gradient(90deg, #ffc048, #ffd271); }
     .table-row { transition: background 0.15s; }
     .table-row:hover { background: rgba(255,255,255,0.03); }
     .badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
@@ -77,6 +78,7 @@
     }
     .btn-primary:hover { background: #7c6df0; box-shadow: 0 4px 16px rgba(108,92,231,0.25); }
     .btn-primary:active { transform: scale(0.98); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
     .btn-secondary {
         display: inline-flex;
         align-items: center;
@@ -93,6 +95,7 @@
         transition: all 0.2s;
     }
     .btn-secondary:hover { background: rgba(255,255,255,0.1); color: white; }
+    .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-danger {
         display: inline-flex;
         align-items: center;
@@ -123,26 +126,64 @@
         border-color: rgba(108, 92, 231, 0.45);
         box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
     }
+    .compact-field.dirty {
+        border-color: rgba(255, 192, 72, 0.45);
+        box-shadow: 0 0 0 3px rgba(255, 192, 72, 0.08);
+    }
     .compact-field::placeholder { color: rgba(255,255,255,0.2); }
-    .notice-enter { animation: slideUp 0.3s ease-out; }
     select.input-field { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.3)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
-    /* Kanban board */
-    .kanban-col { transition: border-color 0.2s, box-shadow 0.2s; }
-    .kanban-col:hover { border-color: rgba(255,255,255,0.1); box-shadow: 0 4px 24px rgba(0,0,0,0.2); }
+    .row-flash { animation: flash 1.2s ease-out; }
+    @keyframes flash {
+        0% { background: rgba(0, 206, 201, 0.18); }
+        100% { background: transparent; }
+    }
+    .toast {
+        position: fixed; bottom: 24px; right: 24px; z-index: 100;
+        padding: 12px 18px; border-radius: 12px;
+        background: rgba(18, 18, 26, 0.95); backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 13px; color: white;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+    }
+    .toast.success { border-color: rgba(0, 206, 201, 0.3); }
+    .toast.error { border-color: rgba(255, 107, 107, 0.3); color: #ff8787; }
+    .modal-backdrop {
+        position: fixed; inset: 0; z-index: 90;
+        background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    }
+    .modal-panel {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        z-index: 91; width: min(560px, calc(100vw - 32px));
+        background: rgba(18, 18, 26, 0.98);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    }
+    .health-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .health-pill.ok { background: rgba(0, 206, 201, 0.1); color: #81ecec; border: 1px solid rgba(0, 206, 201, 0.2); }
+    .health-pill.warn { background: rgba(255, 192, 72, 0.1); color: #ffd271; border: 1px solid rgba(255, 192, 72, 0.25); }
+    .health-pill.error { background: rgba(255, 107, 107, 0.12); color: #ff8787; border: 1px solid rgba(255, 107, 107, 0.3); }
+    [x-cloak] { display: none !important; }
 </style>
 {% endblock %}
 
 {% block content %}
 <!-- Header -->
 <section class="mb-8 animate-fade-in">
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3">
         <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         </div>
-        <div>
+        <div class="flex-1">
             <h1 class="text-2xl font-bold tracking-tight">운영 대시보드</h1>
-            <p class="text-sm text-white/35">운영 현황과 관리자 권한을 관리합니다</p>
+            <p class="text-sm text-white/35">운영 현황과 발음 규칙을 관리합니다</p>
         </div>
+        {% if active_section == 'overview' and health %}
+        <span class="health-pill {{ health.level }}" title="{{ health.signals|map(attribute='label')|join(' / ') if health.signals else '모든 지표 정상' }}">
+            <span class="inline-block h-1.5 w-1.5 rounded-full {% if health.level == 'ok' %}bg-mint{% elif health.level == 'warn' %}bg-sun{% else %}bg-coral{% endif %}"></span>
+            {{ health.label }}
+        </span>
+        {% endif %}
     </div>
 </section>
 
@@ -170,13 +211,17 @@
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 개요
             </a>
+            <a href="/?section=pronunciation" class="nav-pill {% if active_section == 'pronunciation' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'pronunciation' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
+                발음 규칙
+            </a>
+            <a href="/?section=audit" class="nav-pill {% if active_section == 'audit' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'audit' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                감사 로그
+            </a>
             <a href="/?section=admins" class="nav-pill {% if active_section == 'admins' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'admins' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 관리자
-            </a>
-            <a href="/?section=keywords" class="nav-pill {% if active_section == 'keywords' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'keywords' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
-                키워드 치환
             </a>
         </nav>
     </aside>
@@ -227,7 +272,7 @@
             <article class="card overflow-hidden">
                 <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
                     <h2 class="text-[15px] font-semibold">서버 목록</h2>
-                    <span class="text-xs text-white/25">{{ guilds|length }}개 서버</span>
+                    <span class="text-xs text-white/25">{{ guilds|length }}개 서버 · 이상 우선 정렬</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full">
@@ -241,7 +286,7 @@
                         </thead>
                         <tbody>
                             {% for guild in guilds %}
-                            <tr class="table-row border-b border-white/[0.03] last:border-0">
+                            <tr class="table-row border-b border-white/[0.03] last:border-0 cursor-pointer" onclick="location.href='/servers/{{ guild.id }}'">
                                 <td class="px-6 py-4">
                                     <div class="flex items-center gap-3">
                                         {% if guild.icon_url %}
@@ -252,13 +297,18 @@
                                         </div>
                                         {% endif %}
                                         <div>
-                                            <div class="text-sm font-medium">{{ guild.name }}</div>
+                                            <div class="flex items-center gap-2 text-sm font-medium">
+                                                {{ guild.name }}
+                                                {% if guild.active_channels == 0 %}
+                                                <span class="badge bg-sun/10 text-sun" title="활성 TTS 채널이 없음">⚠ 미설정</span>
+                                                {% endif %}
+                                            </div>
                                             <div class="font-mono text-[11px] text-white/20">{{ guild.id }}</div>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 text-sm tabular-nums text-white/50">{{ guild.member_count }}</td>
-                                <td class="px-6 py-4 text-sm tabular-nums text-white/50">{{ guild.active_channels }}</td>
+                                <td class="px-6 py-4 text-sm tabular-nums {% if guild.active_channels == 0 %}text-sun{% else %}text-white/50{% endif %}">{{ guild.active_channels }}</td>
                                 <td class="px-6 py-4">
                                     {% if guild.voice_status != '-' %}
                                     <span class="badge bg-mint/10 text-mint">
@@ -290,10 +340,13 @@
                     <div>
                         <div class="mb-2 flex items-center justify-between text-[13px]">
                             <span class="text-white/35">{{ day.label }}</span>
-                            <span class="font-semibold tabular-nums text-white/70">{{ day.tts_requests }}<span class="ml-0.5 text-white/30">건</span></span>
+                            <span class="font-semibold tabular-nums {% if day.is_anomaly %}text-sun{% else %}text-white/70{% endif %}">
+                                {% if day.is_anomaly %}<span class="mr-1" title="평균 대비 급감">↓</span>{% endif %}
+                                {{ day.tts_requests }}<span class="ml-0.5 text-white/30">건</span>
+                            </span>
                         </div>
                         <div class="bar-track">
-                            <div class="bar-fill" style="width: {{ day.bar_width }}%"></div>
+                            <div class="bar-fill {% if day.is_anomaly %}anomaly{% endif %}" style="width: {{ day.bar_width }}%"></div>
                         </div>
                     </div>
                     {% endfor %}
@@ -366,195 +419,463 @@
             </article>
         </section>
 
-        {% elif active_section == 'keywords' %}
-        <!-- ===== Global Keywords: Table layout (top) ===== -->
-        <section>
-            <article class="card overflow-hidden">
-                <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
-                    <div class="flex items-center gap-2">
-                        <div class="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10">
-                            <svg class="h-3.5 w-3.5 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
-                        </div>
-                        <h2 class="text-[15px] font-semibold">전역 키워드</h2>
-                    </div>
-                    <span class="text-xs text-white/25">{{ global_keyword_aliases|length }}개 등록</span>
+        {% elif active_section == 'pronunciation' %}
+        {# ========================== Pronunciation Rules (Unified) ========================== #}
+        <section x-data="pronunciationApp({{ unified_rules|tojson }}, {{ guilds|tojson }})" x-cloak>
+            {# Toolbar #}
+            <div class="card mb-4 flex flex-wrap items-center gap-3 border border-white/[0.06] p-4">
+                <div class="relative flex-1 min-w-[200px]">
+                    <svg class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" x-model="search" placeholder="키워드 또는 치환문 검색..." class="input-field !pl-10">
                 </div>
-                <!-- Table -->
-                <div class="overflow-x-auto">
-                    <table class="min-w-full">
-                        <thead>
-                            <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
-                                <th class="px-6 py-3 text-left" style="width:200px">키워드</th>
-                                <th class="px-6 py-3 text-left">치환 문장</th>
-                                <th class="px-6 py-3 text-right" style="width:150px"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in global_keyword_aliases %}
-                            <tr class="table-row group border-b border-white/[0.03] last:border-0">
-                                <td class="px-6 py-3.5">
-                                    <form id="global-keyword-update-{{ loop.index }}" method="post" action="/keyword-aliases/global/update" class="hidden">
-                                        <input type="hidden" name="original_keyword" value="{{ item.keyword }}">
-                                    </form>
-                                    <input type="text" name="keyword" value="{{ item.keyword }}" form="global-keyword-update-{{ loop.index }}" class="compact-field font-mono text-[13px] text-accent-light">
-                                </td>
-                                <td class="px-6 py-3.5">
-                                    <input type="text" name="replacement" value="{{ item.replacement }}" form="global-keyword-update-{{ loop.index }}" class="compact-field text-sm text-white/80">
-                                </td>
-                                <td class="px-6 py-3.5 text-right">
-                                    <div class="flex items-center justify-end gap-2">
-                                        <input type="submit" value="Save" form="global-keyword-update-{{ loop.index }}" class="btn-secondary !px-3 !py-2">
-                                        <button type="submit" form="global-keyword-update-{{ loop.index }}" class="hidden btn-secondary !px-3 !py-2">
-                                            저장
-                                        </button>
-                                        <form method="post" action="/keyword-aliases/global/delete" class="inline">
-                                            <input type="hidden" name="keyword" value="{{ item.keyword }}">
-                                            <button type="submit" class="rounded-md p-2 text-white/0 transition group-hover:text-white/30 hover:!bg-coral/10 hover:!text-coral">
-                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                            {% if not global_keyword_aliases %}
-                            <tr>
-                                <td colspan="3" class="px-6 py-8 text-center text-sm text-white/20">등록된 전역 키워드가 없습니다</td>
-                            </tr>
-                            {% endif %}
-                            <!-- Inline add row -->
-                            <tr class="border-t border-white/[0.06] bg-white/[0.015]">
-                                <td colspan="3" class="px-6 py-4">
-                                    <form method="post" action="/keyword-aliases/global" class="flex items-center gap-3">
-                                        <div class="flex min-w-0 flex-1 items-center gap-0 rounded-xl border border-white/[0.08] bg-surface-0/60 transition focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgba(108,92,231,0.1)]">
-                                            <input type="text" name="keyword" placeholder="키워드 입력" class="w-40 shrink-0 border-none bg-transparent px-4 py-2.5 text-[13px] font-medium text-accent-light placeholder:text-white/20 focus:outline-none" required>
-                                            <div class="flex h-5 items-center">
-                                                <svg class="h-4 w-4 text-white/15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                <select x-model="scopeFilter" class="input-field !w-auto !min-w-[140px]">
+                    <option value="all">모든 Scope</option>
+                    <option value="global">전역만</option>
+                    <option value="guild">서버별만</option>
+                </select>
+                <select x-model="guildFilter" class="input-field !w-auto !min-w-[160px]">
+                    <option value="all">모든 서버</option>
+                    {% for guild in guilds %}
+                    <option value="{{ guild.id }}">{{ guild.name }}</option>
+                    {% endfor %}
+                </select>
+                <button @click="openCreateModal()" class="btn-primary shrink-0">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    새 규칙
+                </button>
+                <div x-data="{ open: false }" @click.outside="open=false" class="relative">
+                    <button @click="open=!open" class="btn-secondary !px-3" title="더보기">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                    </button>
+                    <div x-show="open" x-transition class="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-white/[0.08] bg-surface-2 shadow-xl">
+                        <a href="/pronunciation/export.csv" class="flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            CSV 내보내기
+                        </a>
+                        <form method="post" action="/pronunciation/import" enctype="multipart/form-data" class="block">
+                            <label class="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                CSV 가져오기
+                                <input type="file" name="file" accept=".csv" class="hidden" onchange="this.form.submit()">
+                            </label>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            {# Stats summary #}
+            <div class="mb-4 flex flex-wrap gap-2 text-[12px]">
+                <span class="rounded-md bg-white/[0.04] px-2.5 py-1 text-white/50">
+                    총 <span class="font-semibold text-white/80" x-text="rules.length"></span>개
+                </span>
+                <span class="rounded-md bg-accent/10 px-2.5 py-1 text-accent-light">
+                    전역 <span class="font-semibold" x-text="rules.filter(r => r.scope === 'global').length"></span>
+                </span>
+                <span class="rounded-md bg-mint/10 px-2.5 py-1 text-mint">
+                    서버별 <span class="font-semibold" x-text="rules.filter(r => r.scope === 'guild').length"></span>
+                </span>
+                <span x-show="filtered.length !== rules.length" class="rounded-md bg-sun/10 px-2.5 py-1 text-sun">
+                    필터링됨 <span class="font-semibold" x-text="filtered.length"></span>
+                </span>
+            </div>
+
+            {# Empty state #}
+            <template x-if="rules.length === 0">
+                <article class="card p-10 text-center">
+                    <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/10">
+                        <svg class="h-8 w-8 text-accent-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
+                    </div>
+                    <h3 class="text-base font-semibold">TTS가 읽는 단어를 직접 정의하세요</h3>
+                    <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-white/40">
+                        봇이 "Supertonic"을 어색하게 읽는다면 "슈퍼토닉"으로 바꾸도록 규칙을 추가할 수 있습니다.
+                        전역 규칙은 모든 서버에, 서버별 규칙은 해당 서버에만 적용됩니다.
+                    </p>
+                    <button @click="openCreateModal()" class="btn-primary mx-auto mt-5">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        첫 규칙 추가
+                    </button>
+                </article>
+            </template>
+
+            {# Rules table #}
+            <template x-if="rules.length > 0">
+                <article class="card overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full">
+                            <thead>
+                                <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
+                                    <th class="px-5 py-3 text-left" style="width:90px">Scope</th>
+                                    <th class="px-5 py-3 text-left" style="width:240px">키워드</th>
+                                    <th class="px-5 py-3 text-left">치환 문장</th>
+                                    <th class="px-5 py-3 text-right" style="width:90px">사용</th>
+                                    <th class="px-5 py-3 text-left" style="width:120px">최근 사용</th>
+                                    <th class="px-5 py-3 text-right" style="width:140px"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(rule, idx) in filtered" :key="rule.scope + '|' + (rule.guild_id || '0') + '|' + rule.keyword">
+                                    <tr class="table-row border-b border-white/[0.03] last:border-0"
+                                        :class="(rule.hit_count === 0) && 'opacity-60'"
+                                        :id="'row-' + idx">
+                                        <td class="px-5 py-3">
+                                            <template x-if="rule.scope === 'global'">
+                                                <span class="badge bg-accent/10 text-accent-light">전역</span>
+                                            </template>
+                                            <template x-if="rule.scope === 'guild'">
+                                                <div class="flex flex-col gap-0.5">
+                                                    <span class="badge bg-mint/10 text-mint" x-text="rule.guild_name"></span>
+                                                </div>
+                                            </template>
+                                        </td>
+                                        <td class="px-5 py-3">
+                                            <div class="flex items-center gap-1.5">
+                                                <input type="text" x-model="rule._keyword"
+                                                    @input="markDirty(rule)"
+                                                    @keydown.meta.enter="saveRule(rule)"
+                                                    @keydown.ctrl.enter="saveRule(rule)"
+                                                    @keydown.escape="resetRule(rule)"
+                                                    class="compact-field font-mono text-[13px]"
+                                                    :class="{ 'dirty': rule._dirty, 'text-accent-light': rule.scope === 'global', 'text-mint': rule.scope === 'guild' }">
+                                                <template x-if="rule.scope === 'global' && rule.overridden_in.length > 0">
+                                                    <span class="badge bg-sun/10 text-sun shrink-0" :title="'서버별 우회: ' + rule.overridden_in.join(', ')">Δ</span>
+                                                </template>
+                                                <template x-if="rule.scope === 'guild' && rule.overrides_global">
+                                                    <span class="badge bg-sun/10 text-sun shrink-0" title="전역 규칙을 이 서버에서 덮어씀">↑</span>
+                                                </template>
                                             </div>
-                                            <input type="text" name="replacement" placeholder="치환될 문장 입력" class="min-w-0 flex-1 border-none bg-transparent px-4 py-2.5 text-[13px] text-white/60 placeholder:text-white/20 focus:outline-none" required>
+                                        </td>
+                                        <td class="px-5 py-3">
+                                            <input type="text" x-model="rule._replacement"
+                                                @input="markDirty(rule)"
+                                                @keydown.meta.enter="saveRule(rule)"
+                                                @keydown.ctrl.enter="saveRule(rule)"
+                                                @keydown.escape="resetRule(rule)"
+                                                class="compact-field text-sm text-white/80"
+                                                :class="{ 'dirty': rule._dirty }">
+                                        </td>
+                                        <td class="px-5 py-3 text-right text-sm tabular-nums" :class="rule.hit_count > 0 ? 'text-white/70' : 'text-white/25'">
+                                            <span x-text="rule.hit_count"></span>
+                                        </td>
+                                        <td class="px-5 py-3 text-[12px] text-white/40" x-text="rule.last_seen_label"></td>
+                                        <td class="px-5 py-3">
+                                            <div class="flex items-center justify-end gap-1.5">
+                                                <button x-show="rule._dirty" @click="saveRule(rule)" class="btn-secondary !px-3 !py-1.5 !text-[12px]">저장</button>
+                                                <button x-show="rule._dirty" @click="resetRule(rule)" class="rounded-md p-1.5 text-white/30 hover:bg-white/[0.05] hover:text-white/60" title="되돌리기">
+                                                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                                                </button>
+                                                <button @click="deleteRule(rule)" class="rounded-md p-1.5 text-white/25 transition hover:bg-coral/10 hover:text-coral" title="삭제">
+                                                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="filtered.length === 0 && rules.length > 0">
+                                    <td colspan="6" class="px-6 py-10 text-center text-sm text-white/25">검색 결과가 없습니다</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </template>
+
+            {# Modal: New Rule with Live Preview #}
+            <template x-if="modalOpen">
+                <div>
+                    <div class="modal-backdrop" @click="closeModal()"></div>
+                    <div class="modal-panel" @keydown.escape.window="closeModal()">
+                        <div class="border-b border-white/[0.06] px-6 py-4">
+                            <h2 class="text-[15px] font-semibold">새 발음 규칙</h2>
+                            <p class="mt-1 text-xs text-white/40">TTS가 특정 메시지를 다르게 읽도록 정의합니다</p>
+                        </div>
+                        <form @submit.prevent="submitNew()" class="space-y-4 p-6">
+                            <label class="block">
+                                <span class="mb-2 block text-xs font-medium text-white/40">키워드 (이 메시지를 보면)</span>
+                                <input x-model="form.keyword" @input="updatePreview()" type="text" class="input-field font-mono" placeholder="ㅋㅋㅋ" required autofocus>
+                            </label>
+                            <div class="flex justify-center text-white/20">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            </div>
+                            <label class="block">
+                                <span class="mb-2 block text-xs font-medium text-white/40">치환 문장 (이렇게 읽음)</span>
+                                <input x-model="form.replacement" @input="updatePreview()" type="text" class="input-field" placeholder="크크크" required>
+                            </label>
+                            <div>
+                                <span class="mb-2 block text-xs font-medium text-white/40">적용 범위</span>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <label class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 transition" :class="form.scope === 'global' ? 'border-accent/40 bg-accent/[0.06]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'">
+                                        <input type="radio" name="scope" value="global" x-model="form.scope" class="accent-accent">
+                                        <div>
+                                            <div class="text-sm font-medium">전역</div>
+                                            <div class="text-[11px] text-white/40">모든 서버</div>
                                         </div>
-                                        <button type="submit" class="btn-primary shrink-0 !rounded-xl !px-5 !py-2.5 !text-[13px]">
-                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                            추가
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                                    </label>
+                                    <label class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 transition" :class="form.scope === 'guild' ? 'border-mint/40 bg-mint/[0.06]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'">
+                                        <input type="radio" name="scope" value="guild" x-model="form.scope" class="accent-mint">
+                                        <div>
+                                            <div class="text-sm font-medium">서버별</div>
+                                            <div class="text-[11px] text-white/40">특정 서버만</div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div x-show="form.scope === 'guild'" x-transition class="mt-3">
+                                    <select x-model="form.guild_id" class="input-field" required>
+                                        <option value="">서버 선택</option>
+                                        {% for guild in guilds %}
+                                        <option value="{{ guild.id }}">{{ guild.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {# Live preview #}
+                            <div class="rounded-xl border border-white/[0.06] bg-surface-0/40 p-4">
+                                <div class="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-white/30">
+                                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6M4.22 4.22l4.24 4.24m7.08 7.08l4.24 4.24M1 12h6m10 0h6M4.22 19.78l4.24-4.24m7.08-7.08l4.24-4.24"/></svg>
+                                    실시간 미리보기
+                                </div>
+                                <template x-if="form.keyword || form.replacement">
+                                    <div class="space-y-2 text-[13px]">
+                                        <div class="flex items-start gap-2">
+                                            <span class="shrink-0 rounded bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-white/50">사용자 입력</span>
+                                            <span class="font-mono text-white/70" x-text="form.keyword || '(비어있음)'"></span>
+                                        </div>
+                                        <div class="flex items-start gap-2">
+                                            <span class="shrink-0 rounded bg-mint/[0.1] px-2 py-0.5 font-mono text-[11px] text-mint">TTS 발음</span>
+                                            <span class="text-mint-light" x-text="form.replacement || '(비어있음)'"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!form.keyword && !form.replacement">
+                                    <div class="text-[12px] text-white/30">키워드와 치환 문장을 입력하면 결과가 여기에 표시됩니다</div>
+                                </template>
+                            </div>
+
+                            <div x-show="formError" class="rounded-lg border border-coral/20 bg-coral/[0.06] px-3 py-2 text-[12px] text-coral-light" x-text="formError"></div>
+
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <button type="button" @click="closeModal()" class="btn-secondary">취소</button>
+                                <button type="submit" :disabled="!canSubmit()" class="btn-primary">
+                                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                    추가
+                                </button>
+                                <button type="button" @click="submitNew(true)" :disabled="!canSubmit()" class="btn-secondary" title="추가 후 모달 유지">
+                                    추가하고 계속
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-            </article>
+            </template>
+
+            {# Toast #}
+            <template x-if="toast">
+                <div class="toast" :class="toast.level" x-transition x-text="toast.message"></div>
+            </template>
         </section>
 
-        <!-- ===== Guild Keywords: Kanban board layout (bottom) ===== -->
-        <section class="mt-8">
-            <div class="mb-4 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <div class="flex h-6 w-6 items-center justify-center rounded-md bg-mint/10">
-                        <svg class="h-3.5 w-3.5 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                    </div>
-                    <h2 class="text-[15px] font-semibold">서버별 키워드</h2>
-                    <span class="ml-1 text-xs text-white/25">같은 키워드가 전역에도 있으면 서버별 설정 우선</span>
-                </div>
+        {% elif active_section == 'audit' %}
+        <article class="card overflow-hidden">
+            <div class="border-b border-white/[0.06] px-6 py-4">
+                <h2 class="text-[15px] font-semibold">감사 로그</h2>
+                <p class="mt-1 text-xs text-white/30">발음 규칙 변경 이력 (최근 200건)</p>
             </div>
-
-            <div class="flex gap-4 overflow-x-auto pb-4" style="-webkit-overflow-scrolling: touch;">
-                <!-- Existing guild columns -->
-                {% for group in guild_keywords_by_guild %}
-                <div class="kanban-col flex w-72 shrink-0 flex-col rounded-2xl border border-white/[0.06] bg-surface-1/60 backdrop-blur-sm">
-                    <!-- Column header -->
-                    <div class="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
-                        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-mint/10 text-xs font-bold text-mint">
-                            {{ group["guild_name"][0] }}
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <p class="truncate text-[13px] font-semibold">{{ group["guild_name"] }}</p>
-                            <p class="text-[11px] text-white/25">{{ group["items"]|length }}개 키워드</p>
-                        </div>
-                    </div>
-
-                    <!-- Keyword cards -->
-                    <div class="flex-1 space-y-2 p-3">
-                        {% for item in group["items"] %}
-                        <div class="group rounded-xl border border-white/[0.04] bg-white/[0.03] p-3 transition hover:border-white/[0.08]">
-                            <form id="guild-keyword-update-{{ item.guild_id }}-{{ loop.index }}" method="post" action="/keyword-aliases/guild/update" class="hidden">
-                                <input type="hidden" name="guild_id" value="{{ item.guild_id }}">
-                                <input type="hidden" name="original_keyword" value="{{ item.keyword }}">
-                            </form>
-                                <input type="text" name="keyword" value="{{ item.keyword }}" form="guild-keyword-update-{{ item.guild_id }}-{{ loop.index }}" class="compact-field font-mono text-[12px] text-mint">
-                                <input type="text" name="replacement" value="{{ item.replacement }}" form="guild-keyword-update-{{ item.guild_id }}-{{ loop.index }}" class="compact-field text-[12px] text-white/80">
-                                <div class="flex items-center justify-between gap-2">
-                                    <input type="submit" value="Save" form="guild-keyword-update-{{ item.guild_id }}-{{ loop.index }}" class="btn-secondary !px-3 !py-1.5 !text-[12px]">
-                                    <button type="submit" form="guild-keyword-update-{{ item.guild_id }}-{{ loop.index }}" class="hidden btn-secondary !px-3 !py-1.5 !text-[12px]">
-                                        저장
-                                    </button>
-                                    <form method="post" action="/keyword-aliases/guild/delete" class="inline">
-                                        <input type="hidden" name="guild_id" value="{{ item.guild_id }}">
-                                        <input type="hidden" name="keyword" value="{{ item.keyword }}">
-                                        <button type="submit" class="rounded-md p-1.5 text-white/0 transition group-hover:text-white/25 hover:!bg-coral/10 hover:!text-coral">
-                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                        </button>
-                                    </form>
-                                </div>
-                        </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full">
+                    <thead>
+                        <tr class="border-b border-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-white/25">
+                            <th class="px-5 py-3 text-left">시각</th>
+                            <th class="px-5 py-3 text-left">작업자</th>
+                            <th class="px-5 py-3 text-left">동작</th>
+                            <th class="px-5 py-3 text-left">Scope</th>
+                            <th class="px-5 py-3 text-left">키워드</th>
+                            <th class="px-5 py-3 text-left">치환 문장</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in audit_entries %}
+                        <tr class="table-row border-b border-white/[0.03] last:border-0">
+                            <td class="px-5 py-3 text-[12px] text-white/50" title="{{ entry.timestamp }}">{{ entry.timestamp_label }}</td>
+                            <td class="px-5 py-3 text-[13px] text-white/70">{{ entry.actor_label }}</td>
+                            <td class="px-5 py-3">
+                                {% if entry.action == 'add' %}
+                                <span class="badge bg-mint/10 text-mint">추가</span>
+                                {% elif entry.action == 'update' %}
+                                <span class="badge bg-sun/10 text-sun">수정</span>
+                                {% elif entry.action == 'delete' %}
+                                <span class="badge bg-coral/10 text-coral">삭제</span>
+                                {% else %}
+                                <span class="badge bg-white/[0.06] text-white/50">{{ entry.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-5 py-3">
+                                {% if entry.scope == 'global' %}
+                                <span class="badge bg-accent/10 text-accent-light">전역</span>
+                                {% else %}
+                                <span class="badge bg-mint/10 text-mint">{{ entry.guild_name or entry.guild_id }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-5 py-3 font-mono text-[13px] text-white/70">{{ entry.keyword }}</td>
+                            <td class="px-5 py-3 text-[13px] text-white/50">{{ entry.new_replacement or '—' }}</td>
+                        </tr>
                         {% endfor %}
-                    </div>
-
-                    <!-- Inline add form at column bottom -->
-                    <div class="border-t border-white/[0.06] p-3">
-                        <form method="post" action="/keyword-aliases/guild" class="space-y-2">
-                            <input type="hidden" name="guild_id" value="{{ group["guild_id"] }}">
-                            <div class="overflow-hidden rounded-lg border border-white/[0.06] bg-surface-0/40 transition focus-within:border-mint/30">
-                                <input type="text" name="keyword" placeholder="키워드 입력" class="w-full border-none bg-transparent px-3 py-2 text-[12px] font-medium text-mint placeholder:text-white/20 focus:outline-none" required>
-                                <div class="flex items-center gap-1.5 border-t border-white/[0.04] px-3 py-0.5">
-                                    <svg class="h-3 w-3 shrink-0 text-white/15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                                    <span class="text-[10px] text-white/15">변환</span>
-                                </div>
-                                <input type="text" name="replacement" placeholder="치환될 문장 입력" class="w-full border-none bg-transparent px-3 py-2 text-[12px] text-white/50 placeholder:text-white/20 focus:outline-none" required>
-                            </div>
-                            <button type="submit" class="flex w-full items-center justify-center gap-1 rounded-lg bg-white/[0.04] py-1.5 text-[12px] font-medium text-white/30 transition hover:bg-mint/10 hover:text-mint/70">
-                                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                추가
-                            </button>
-                        </form>
-                    </div>
-                </div>
-                {% endfor %}
-
-                <!-- "New server" column - add keywords for a server that doesn't have any yet -->
-                <div class="flex w-72 shrink-0 flex-col rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02]">
-                    <div class="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
-                        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.06] text-white/30">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        </div>
-                        <p class="text-[13px] font-medium text-white/30">새 서버 추가</p>
-                    </div>
-                    <div class="flex-1 p-3">
-                        <form method="post" action="/keyword-aliases/guild" class="space-y-2">
-                            <select name="guild_id" class="input-field !rounded-lg !py-1.5 !text-[12px]" required>
-                                <option value="">서버 선택</option>
-                                {% for guild in guilds %}
-                                <option value="{{ guild.id }}">{{ guild.name }}</option>
-                                {% endfor %}
-                            </select>
-                            <div class="overflow-hidden rounded-lg border border-white/[0.06] bg-surface-0/40 transition focus-within:border-accent/30">
-                                <input type="text" name="keyword" placeholder="키워드 입력" class="w-full border-none bg-transparent px-3 py-2 text-[12px] font-medium text-accent-light placeholder:text-white/20 focus:outline-none" required>
-                                <div class="flex items-center gap-1.5 border-t border-white/[0.04] px-3 py-0.5">
-                                    <svg class="h-3 w-3 shrink-0 text-white/15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                                    <span class="text-[10px] text-white/15">변환</span>
-                                </div>
-                                <input type="text" name="replacement" placeholder="치환될 문장 입력" class="w-full border-none bg-transparent px-3 py-2 text-[12px] text-white/50 placeholder:text-white/20 focus:outline-none" required>
-                            </div>
-                            <button type="submit" class="btn-primary w-full !rounded-lg !py-2 !text-[12px]">
-                                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                키워드 추가
-                            </button>
-                        </form>
-                    </div>
-                </div>
+                        {% if not audit_entries %}
+                        <tr><td colspan="6" class="px-6 py-10 text-center text-sm text-white/25">감사 기록이 없습니다</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
-        </section>
+        </article>
         {% endif %}
     </div>
 </section>
+
+{% if active_section == 'pronunciation' %}
+<script>
+function pronunciationApp(initialRules, guilds) {
+    return {
+        rules: initialRules.map(r => ({
+            ...r,
+            _keyword: r.keyword,
+            _replacement: r.replacement,
+            _dirty: false,
+        })),
+        search: '',
+        scopeFilter: 'all',
+        guildFilter: 'all',
+        modalOpen: false,
+        form: { scope: 'global', guild_id: '', keyword: '', replacement: '' },
+        formError: '',
+        toast: null,
+        toastTimer: null,
+
+        get filtered() {
+            const q = this.search.trim().toLowerCase();
+            return this.rules.filter(r => {
+                if (this.scopeFilter !== 'all' && r.scope !== this.scopeFilter) return false;
+                // guild filter: 'show rules effective in this guild' = its own + globals (unless overridden)
+                if (this.guildFilter !== 'all' && r.scope === 'guild' && String(r.guild_id) !== this.guildFilter) return false;
+                if (!q) return true;
+                return r.keyword.toLowerCase().includes(q) || r.replacement.toLowerCase().includes(q);
+            });
+        },
+
+        markDirty(rule) {
+            rule._dirty = (rule._keyword !== rule.keyword) || (rule._replacement !== rule.replacement);
+        },
+        resetRule(rule) {
+            rule._keyword = rule.keyword;
+            rule._replacement = rule.replacement;
+            rule._dirty = false;
+        },
+        async saveRule(rule) {
+            if (!rule._dirty) return;
+            const body = {
+                scope: rule.scope,
+                guild_id: rule.guild_id,
+                original_keyword: rule.keyword,
+                keyword: rule._keyword.trim(),
+                replacement: rule._replacement.trim(),
+            };
+            const res = await fetch('/api/pronunciation/rules', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                this.showToast(data.error || '저장 실패', 'error');
+                return;
+            }
+            rule.keyword = body.keyword;
+            rule.replacement = body.replacement;
+            rule._dirty = false;
+            this.showToast('저장됨', 'success');
+        },
+        async deleteRule(rule) {
+            if (!confirm(`"${rule.keyword}" 규칙을 삭제할까요?`)) return;
+            const body = { scope: rule.scope, guild_id: rule.guild_id, keyword: rule.keyword };
+            const res = await fetch('/api/pronunciation/rules', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                this.showToast(data.error || '삭제 실패', 'error');
+                return;
+            }
+            this.rules = this.rules.filter(r => r !== rule);
+            this.showToast('삭제됨', 'success');
+        },
+
+        openCreateModal() {
+            this.form = { scope: 'global', guild_id: '', keyword: '', replacement: '' };
+            this.formError = '';
+            this.modalOpen = true;
+        },
+        closeModal() { this.modalOpen = false; },
+        canSubmit() {
+            const k = this.form.keyword.trim();
+            const r = this.form.replacement.trim();
+            if (!k || !r) return false;
+            if (this.form.scope === 'guild' && !this.form.guild_id) return false;
+            return true;
+        },
+        async submitNew(keepOpen = false) {
+            if (!this.canSubmit()) return;
+            const body = {
+                scope: this.form.scope,
+                guild_id: this.form.scope === 'guild' ? Number(this.form.guild_id) : null,
+                keyword: this.form.keyword.trim(),
+                replacement: this.form.replacement.trim(),
+            };
+            const res = await fetch('/api/pronunciation/rules', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                this.formError = data.error || '추가 실패';
+                return;
+            }
+            const guildName = body.scope === 'guild'
+                ? (guilds.find(g => g.id === body.guild_id) || {}).name
+                : null;
+            this.rules.push({
+                scope: body.scope,
+                guild_id: body.guild_id,
+                guild_name: guildName,
+                keyword: body.keyword,
+                replacement: body.replacement,
+                hit_count: 0,
+                last_seen_at: null,
+                last_seen_label: '—',
+                overridden_in: [],
+                overrides_global: false,
+                _keyword: body.keyword,
+                _replacement: body.replacement,
+                _dirty: false,
+            });
+            this.showToast('규칙 추가됨', 'success');
+            if (keepOpen) {
+                this.form.keyword = '';
+                this.form.replacement = '';
+                this.formError = '';
+            } else {
+                this.modalOpen = false;
+            }
+        },
+        updatePreview() { /* preview is computed in template */ },
+
+        showToast(message, level = 'info') {
+            this.toast = { message, level };
+            clearTimeout(this.toastTimer);
+            this.toastTimer = setTimeout(() => { this.toast = null; }, 2400);
+        },
+    };
+}
+</script>
+{% endif %}
 {% endblock %}
