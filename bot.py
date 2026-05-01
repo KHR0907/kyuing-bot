@@ -123,14 +123,19 @@ async def on_message(message):
             )
             text = replaced_text
 
-        if not message.author.voice or not message.author.voice.channel:
+        user_voice_channel = message.author.voice.channel if message.author.voice else None
+        bot_voice_client = message.guild.voice_client
+        bot_voice_channel = bot_voice_client.channel if bot_voice_client else None
+
+        target_channel = user_voice_channel or bot_voice_channel
+        if target_channel is None:
             await message.reply("먼저 음성 채널에 접속해주세요!")
             return
 
         await database.increment_daily_tts_requests()
         error = await tts_engine.do_tts(
             text=text[:500],
-            voice_channel=message.author.voice.channel,
+            voice_channel=target_channel,
             guild=message.guild,
             user_id=message.author.id,
         )
