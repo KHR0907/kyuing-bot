@@ -109,25 +109,6 @@ async def on_message(message):
         if not text or text.startswith("/"):
             return
 
-        replaced_text, replacement_scope = database.resolve_keyword_replacement(message.guild.id, text, bot_id=bot.bot_id)
-        if replacement_scope:
-            log.info(
-                "TTS 키워드 치환 scope={} guild_id={} channel_id={} user_id={} keyword={} replacement={}",
-                replacement_scope,
-                message.guild.id,
-                message.channel.id,
-                message.author.id,
-                text,
-                replaced_text,
-            )
-            database.record_keyword_hit(
-                replacement_scope,
-                text,
-                message.guild.id if replacement_scope == "guild" else None,
-                bot_id=bot.bot_id,
-            )
-            text = replaced_text
-
         user_voice_channel = message.author.voice.channel if message.author.voice else None
         bot_voice_client = message.guild.voice_client
         bot_voice_channel = bot_voice_client.channel if bot_voice_client else None
@@ -139,10 +120,11 @@ async def on_message(message):
 
         await database.increment_daily_tts_requests(bot_id=bot.bot_id)
         error = await tts_engine.do_tts(
-            text=text[:500],
+            text=text,
             voice_channel=target_channel,
             guild=message.guild,
             user_id=message.author.id,
+            bot_id=bot.bot_id,
         )
         if error:
             await message.reply(error)

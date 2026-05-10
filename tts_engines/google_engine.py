@@ -63,7 +63,7 @@ class GoogleEngine(TTSEngineBase):
         tmp.close()
 
         char_count = len(text)
-        await database.increment_tts_char_usage("standard", char_count)
+        await database.increment_tts_char_usage("standard", char_count, bot_id=kwargs.get("bot_id"))
         log.debug("Google TTS 사용: voice={} chars={}", voice, char_count)
 
         return tmp_path
