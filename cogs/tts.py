@@ -26,7 +26,7 @@ class TTSCog(commands.Cog):
         voices = _voices_for_engine(engine)
         default_voice = next(iter(voices))
         await database.set_user_setting(
-            interaction.user.id, engine=engine, voice=default_voice,
+            interaction.user.id, bot_id=self.bot.bot_id, engine=engine, voice=default_voice,
         )
         await interaction.response.send_message(
             f"✅ 엔진 → **{TTS_ENGINES[engine]}**\n"
@@ -36,7 +36,7 @@ class TTSCog(commands.Cog):
 
     @app_commands.command(name="voice", description="기본 보이스를 변경합니다")
     async def cmd_voice(self, interaction: discord.Interaction, voice: str):
-        settings = await database.get_user_settings(interaction.user.id)
+        settings = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         engine_name = settings["engine"]
         voices = _voices_for_engine(engine_name)
 
@@ -49,7 +49,7 @@ class TTSCog(commands.Cog):
             )
             return
 
-        await database.set_user_setting(interaction.user.id, voice=voice)
+        await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, voice=voice)
         await interaction.response.send_message(
             f"✅ 보이스 → **{voice} ({voices[voice]})**", ephemeral=True,
         )
@@ -58,7 +58,7 @@ class TTSCog(commands.Cog):
     async def voice_autocomplete(
         self, interaction: discord.Interaction, current: str,
     ) -> list[app_commands.Choice[str]]:
-        settings = await database.get_user_settings(interaction.user.id)
+        settings = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         voices = _voices_for_engine(settings["engine"])
         return [
             app_commands.Choice(name=f"{k} ({v})", value=k)
@@ -71,7 +71,7 @@ class TTSCog(commands.Cog):
         if not 0.5 <= speed <= 2.0:
             await interaction.response.send_message("❌ 0.5 ~ 2.0 범위로 입력하세요.", ephemeral=True)
             return
-        await database.set_user_setting(interaction.user.id, speed=speed)
+        await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, speed=speed)
         await interaction.response.send_message(f"✅ 속도 → **{speed}x**", ephemeral=True)
 
     @app_commands.command(name="lang", description="기본 언어를 변경합니다")
@@ -79,7 +79,7 @@ class TTSCog(commands.Cog):
         lang=[app_commands.Choice(name=f"{l} ({c})", value=c) for c, l in LANGUAGES.items()]
     )
     async def cmd_lang(self, interaction: discord.Interaction, lang: str):
-        await database.set_user_setting(interaction.user.id, lang=lang)
+        await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, lang=lang)
         await interaction.response.send_message(
             f"✅ 언어 → **{LANGUAGES[lang]}**", ephemeral=True,
         )
@@ -93,18 +93,18 @@ class TTSCog(commands.Cog):
         ]
     )
     async def cmd_quality(self, interaction: discord.Interaction, steps: int):
-        settings = await database.get_user_settings(interaction.user.id)
+        settings = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         if settings["engine"] != "supertonic":
             await interaction.response.send_message(
                 "❌ 품질 설정은 **Supertonic-2** 엔진에서만 사용할 수 있습니다.", ephemeral=True,
             )
             return
-        await database.set_user_setting(interaction.user.id, total_steps=steps)
+        await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, total_steps=steps)
         await interaction.response.send_message(f"✅ 품질 → **{steps} 스텝**", ephemeral=True)
 
     @app_commands.command(name="settings", description="현재 TTS 설정 확인")
     async def cmd_settings(self, interaction: discord.Interaction):
-        s = await database.get_user_settings(interaction.user.id)
+        s = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         engine_name = s["engine"]
         voices = _voices_for_engine(engine_name)
 
@@ -124,7 +124,7 @@ class TTSCog(commands.Cog):
             embed.add_field(name="품질", value=f"{s['total_steps']} 스텝", inline=True)
 
         if engine_name == "google":
-            usage = await database.get_tts_char_usage()
+            usage = await database.get_tts_char_usage(bot_id=self.bot.bot_id)
             used = usage.get("standard", 0)
             pct = used / GOOGLE_TTS_FREE_LIMIT * 100
             embed.add_field(
@@ -137,7 +137,7 @@ class TTSCog(commands.Cog):
 
     @app_commands.command(name="voices", description="보이스 목록")
     async def cmd_voices(self, interaction: discord.Interaction):
-        settings = await database.get_user_settings(interaction.user.id)
+        settings = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         engine_name = settings["engine"]
         voices = _voices_for_engine(engine_name)
 
@@ -162,7 +162,7 @@ class TTSCog(commands.Cog):
         # 미리보기는 통계에 영향 주지 않음 (record_keyword_hit 호출하지 않음).
         # on_message만 실제 사용으로 카운트.
         guild_id = interaction.guild.id if interaction.guild else 0
-        resolved, scope = database.resolve_keyword_replacement(guild_id, text.strip())
+        resolved, scope = database.resolve_keyword_replacement(guild_id, text.strip(), bot_id=self.bot.bot_id)
 
         embed = discord.Embed(title="🔊 발음 미리보기", color=0x6c5ce7)
         embed.add_field(name="입력", value=f"```{text[:200]}```", inline=False)
@@ -183,7 +183,7 @@ class TTSCog(commands.Cog):
 
     @app_commands.command(name="usage", description="Google TTS 이번 달 사용량 확인")
     async def cmd_usage(self, interaction: discord.Interaction):
-        usage = await database.get_tts_char_usage()
+        usage = await database.get_tts_char_usage(bot_id=self.bot.bot_id)
         used = usage.get("standard", 0)
         remaining = max(0, GOOGLE_TTS_FREE_LIMIT - used)
         pct = used / GOOGLE_TTS_FREE_LIMIT * 100

@@ -84,6 +84,7 @@ def create_app(bot):
         SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
     )
     app.bot = bot
+    app.bot_process_manager = None
 
     from web.routes import register_routes
     register_routes(app)

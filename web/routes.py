@@ -38,7 +38,7 @@ def _format_relative(iso_str: str | None) -> str:
 
 
 def register_routes(app):
-    valid_sections = {"overview", "admins", "pronunciation", "audit"}
+    valid_sections = {"overview", "bots", "admins", "pronunciation", "audit"}
     section_aliases = {"keywords": "pronunciation"}
 
     def pop_notice():
@@ -71,6 +71,20 @@ def register_routes(app):
     def _actor_id() -> int:
         raw = session.get("user_id")
         return int(raw) if raw else 0
+
+    async def _validate_discord_bot_token(token: str) -> tuple[dict | None, str | None]:
+        import aiohttp
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                "https://discord.com/api/v10/users/@me",
+                headers={"Authorization": f"Bot {token}"},
+            ) as resp:
+                if resp.status != 200:
+                    return None, f"Discord 봇 토큰 검증 실패(status={resp.status})"
+                data = await resp.json()
+        if not data.get("bot"):
+            return None, "입력한 토큰은 Discord 봇 토큰이 아닙니다."
+        return data, None
 
     def _compute_health(metrics: dict, guilds: list) -> dict:
         today = metrics.get("daily_requests", 0)
@@ -122,18 +136,28 @@ def register_routes(app):
             return await render_template("login.html")
 
         bot = current_app.bot
-        guild_count = len(bot.guilds)
-        active_channel_count = await database.get_total_tts_channel_count()
-        metrics = await database.get_dashboard_metrics(guild_count, active_channel_count)
+        bot_records = await database.get_bots()
+        try:
+            selected_bot_id = int(request.args.get("bot_id") or getattr(bot, "bot_id", 1))
+        except ValueError:
+            selected_bot_id = getattr(bot, "bot_id", 1)
+        if not any(item["id"] == selected_bot_id for item in bot_records):
+            selected_bot_id = bot_records[0]["id"] if bot_records else getattr(bot, "bot_id", 1)
+        selected_bot = await database.get_bot(selected_bot_id)
+        selected_bot_is_live = selected_bot_id == getattr(bot, "bot_id", 1)
+
+        guild_count = len(bot.guilds) if selected_bot_is_live else (selected_bot or {}).get("guild_count", 0)
+        active_channel_count = await database.get_total_tts_channel_count(bot_id=selected_bot_id)
+        metrics = await database.get_dashboard_metrics(guild_count, active_channel_count, bot_id=selected_bot_id)
 
         recent = metrics.get("recent_requests", [])
         if recent:
             avg = sum(r["tts_requests"] for r in recent) / max(1, len(recent))
             for r in recent:
                 r["is_anomaly"] = avg > 0 and r["tts_requests"] < avg * 0.4
-        channel_counts = await database.get_tts_channel_counts_by_guild()
-        global_keyword_aliases = await database.get_global_keyword_aliases()
-        guild_keyword_aliases = await database.get_guild_keyword_aliases()
+        channel_counts = await database.get_tts_channel_counts_by_guild(bot_id=selected_bot_id)
+        global_keyword_aliases = await database.get_global_keyword_aliases(bot_id=selected_bot_id)
+        guild_keyword_aliases = await database.get_guild_keyword_aliases(bot_id=selected_bot_id)
         stored_admin_ids = set(await database.get_dashboard_admin_ids())
         viewer_is_super_admin = int(user_id) in DASHBOARD_ADMIN_IDS
         all_admin_ids = set(stored_admin_ids)
@@ -174,7 +198,7 @@ def register_routes(app):
             )
 
         guilds = []
-        for guild in sorted(bot.guilds, key=lambda item: item.name.lower()):
+        for guild in sorted((bot.guilds if selected_bot_is_live else []), key=lambda item: item.name.lower()):
             voice_client = guild.voice_client
             guilds.append(
                 {
@@ -233,7 +257,7 @@ def register_routes(app):
 
         audit_entries = []
         if section == "audit":
-            raw_audit = await database.get_audit_log(limit=200)
+            raw_audit = await database.get_audit_log(limit=200, bot_id=selected_bot_id)
             unique_actors = {e["actor_id"] for e in raw_audit if e["actor_id"]}
             actor_labels = await resolve_user_labels_bulk(bot, unique_actors)
             for entry in raw_audit:
@@ -246,9 +270,16 @@ def register_routes(app):
         # 서버 상세 → 대시보드 진입 시 guildFilter 자동 적용용
         initial_guild_filter = (request.args.get("guild") or "").strip()
 
+        project_metrics = await database.get_project_metrics()
         return await render_template(
             "dashboard.html",
             metrics=metrics,
+            project_metrics=project_metrics,
+            selected_bot=selected_bot,
+            selected_bot_id=selected_bot_id,
+            selected_bot_is_live=selected_bot_is_live,
+            bot_selector_url=url_for("index", section=section),
+            bot_records=bot_records,
             guilds=guilds,
             admin_entries=admin_entries,
             unified_rules=unified_rules,
@@ -264,24 +295,33 @@ def register_routes(app):
 
     @app.route("/servers/<int:guild_id>")
     @login_required
-    async def server_detail(guild_id: int):
-        bot = current_app.bot
-        guild = bot.get_guild(guild_id)
-        if guild is None:
-            set_notice("해당 서버를 찾을 수 없습니다.", "error")
-            return redirect(url_for("index"))
+    async def server_detail_legacy(guild_id: int):
+        return redirect(url_for("server_detail", bot_id=getattr(current_app.bot, "bot_id", 1), guild_id=guild_id))
 
-        rules = await database.get_guild_keyword_aliases_for(guild_id)
+    @app.route("/bots/<int:bot_id>/servers/<int:guild_id>")
+    @login_required
+    async def server_detail(bot_id: int, guild_id: int):
+        bot = current_app.bot
+        bot_record = await database.get_bot(bot_id)
+        if bot_record is None:
+            set_notice("해당 봇을 찾을 수 없습니다.", "error")
+            return redirect(url_for("index"))
+        guild = bot.get_guild(guild_id) if bot_id == getattr(bot, "bot_id", 1) else None
+        if guild is None:
+            set_notice("해당 봇의 서버 상세는 현재 대시보드 프로세스에서 live 조회할 수 없습니다.", "error")
+            return redirect(url_for("index", section="overview", bot_id=bot_id))
+
+        rules = await database.get_guild_keyword_aliases_for(guild_id, bot_id=bot_id)
         for r in rules:
             r["last_seen_label"] = _format_relative(r["last_seen_at"])
 
-        global_rules = await database.get_global_keyword_aliases()
+        global_rules = await database.get_global_keyword_aliases(bot_id=bot_id)
         guild_keyword_set = {r["keyword"] for r in rules}
         applicable_globals = [g for g in global_rules if g["keyword"] not in guild_keyword_set]
         for r in applicable_globals:
             r["last_seen_label"] = _format_relative(r["last_seen_at"])
 
-        channels = await database.get_tts_channels(guild_id)
+        channels = await database.get_tts_channels(guild_id, bot_id=bot_id)
         voice_client = guild.voice_client
 
         return await render_template(
@@ -293,6 +333,7 @@ def register_routes(app):
                 "member_count": guild.member_count or 0,
                 "voice_status": voice_client.channel.name if voice_client and voice_client.channel else None,
             },
+            bot_record=bot_record,
             tts_channel_count=len(channels),
             guild_rules=rules,
             global_rules=applicable_globals,
@@ -303,6 +344,68 @@ def register_routes(app):
     @login_required
     async def guilds_redirect():
         return redirect(url_for("index"))
+
+    # ───────────────────────── Bots ─────────────────────────
+
+    @app.route("/bots", methods=["POST"])
+    @login_required
+    async def add_bot():
+        form = await request.form
+        name = (form.get("name") or "").strip()
+        token = (form.get("token") or "").strip()
+        if not token:
+            set_notice("Discord Bot Token을 입력해야 합니다.", "error")
+            return redirect(url_for("index", section="bots"))
+
+        bot_user, err = await _validate_discord_bot_token(token)
+        if err:
+            set_notice(err, "error")
+            return redirect(url_for("index", section="bots"))
+
+        username = bot_user.get("username") or "KYUING Bot"
+        created = await database.create_bot(
+            name or username,
+            token,
+            created_by=_actor_id(),
+            discord_bot_user_id=int(bot_user["id"]),
+            discord_username=username,
+        )
+        if created is None:
+            set_notice("이미 등록된 Discord 봇입니다.", "error")
+            return redirect(url_for("index", section="bots"))
+
+        manager = getattr(current_app, "bot_process_manager", None)
+        if manager is not None:
+            await manager.start_bot(created["id"])
+        set_notice(f"봇 `{created['name']}` 을 추가하고 시작했습니다.", "success")
+        return redirect(url_for("index", section="bots"))
+
+    @app.route("/bots/<int:bot_id>/<action>", methods=["POST"])
+    @login_required
+    async def bot_action(bot_id: int, action: str):
+        manager = getattr(current_app, "bot_process_manager", None)
+        if action not in {"start", "stop", "restart", "disable", "enable"}:
+            set_notice("지원하지 않는 봇 작업입니다.", "error")
+            return redirect(url_for("index", section="bots"))
+        if action == "enable":
+            await database.set_bot_enabled(bot_id, True)
+            if manager is not None:
+                await manager.start_bot(bot_id)
+        elif action == "disable":
+            await database.set_bot_enabled(bot_id, False)
+            if manager is not None:
+                await manager.stop_bot(bot_id)
+        elif manager is None:
+            set_notice("봇 프로세스 매니저가 초기화되지 않았습니다.", "error")
+            return redirect(url_for("index", section="bots"))
+        elif action == "start":
+            await manager.start_bot(bot_id)
+        elif action == "stop":
+            await manager.stop_bot(bot_id)
+        elif action == "restart":
+            await manager.restart_bot(bot_id)
+        set_notice(f"봇 {bot_id} 작업 `{action}` 요청 완료", "success")
+        return redirect(url_for("index", section="bots"))
 
     # ───────────────────────── Admins ─────────────────────────
 
@@ -354,6 +457,10 @@ def register_routes(app):
     # ───────────────────────── Pronunciation: JSON API ─────────────────────────
 
     def _validate_rule_payload(data: dict) -> tuple[dict | None, str | None]:
+        try:
+            bot_id = int(data.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        except (TypeError, ValueError):
+            return None, "봇 ID가 올바르지 않습니다."
         scope = (data.get("scope") or "").strip()
         keyword = (data.get("keyword") or "").strip()
         replacement = (data.get("replacement") or "").strip()
@@ -371,10 +478,10 @@ def register_routes(app):
                 return None, "서버 ID가 올바르지 않습니다."
             if guild_id is None:
                 return None, "서버를 선택해야 합니다."
-            if current_app.bot.get_guild(guild_id) is None:
+            if bot_id == getattr(current_app.bot, "bot_id", 1) and current_app.bot.get_guild(guild_id) is None:
                 return None, "선택한 서버를 찾을 수 없습니다."
 
-        return {"scope": scope, "guild_id": guild_id, "keyword": keyword, "replacement": replacement}, None
+        return {"bot_id": bot_id, "scope": scope, "guild_id": guild_id, "keyword": keyword, "replacement": replacement}, None
 
     @app.route("/api/pronunciation/rules", methods=["POST"])
     @login_required
@@ -387,12 +494,12 @@ def register_routes(app):
         actor = _actor_id()
         if payload["scope"] == "global":
             ok = await database.add_global_keyword_alias(
-                payload["keyword"], payload["replacement"], audit_actor=actor,
+                payload["keyword"], payload["replacement"], audit_actor=actor, bot_id=payload["bot_id"],
             )
         else:
             ok = await database.add_guild_keyword_alias(
                 payload["guild_id"], payload["keyword"], payload["replacement"],
-                audit_actor=actor,
+                audit_actor=actor, bot_id=payload["bot_id"],
             )
         if not ok:
             return jsonify({"error": f"이미 등록된 키워드: {payload['keyword']}"}), 409
@@ -413,13 +520,13 @@ def register_routes(app):
         if payload["scope"] == "global":
             result = await database.update_global_keyword_alias(
                 original_keyword, payload["keyword"], payload["replacement"],
-                audit_actor=actor,
+                audit_actor=actor, bot_id=payload["bot_id"],
             )
         else:
             result = await database.update_guild_keyword_alias(
                 payload["guild_id"], original_keyword,
                 payload["keyword"], payload["replacement"],
-                audit_actor=actor,
+                audit_actor=actor, bot_id=payload["bot_id"],
             )
 
         if result == "not_found":
@@ -444,11 +551,11 @@ def register_routes(app):
             except (TypeError, ValueError):
                 return jsonify({"error": "guild_id가 필요합니다."}), 400
             removed = await database.remove_guild_keyword_alias(
-                guild_id, keyword, audit_actor=actor,
+                guild_id, keyword, audit_actor=actor, bot_id=int(data.get("bot_id") or getattr(current_app.bot, "bot_id", 1)),
             )
         else:
             removed = await database.remove_global_keyword_alias(
-                keyword, audit_actor=actor,
+                keyword, audit_actor=actor, bot_id=int(data.get("bot_id") or getattr(current_app.bot, "bot_id", 1)),
             )
 
         if not removed:
@@ -462,7 +569,8 @@ def register_routes(app):
             limit = min(int(request.args.get("limit", 100)), 500)
         except ValueError:
             limit = 100
-        entries = await database.get_audit_log(limit=limit)
+        bot_id = int(request.args.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        entries = await database.get_audit_log(limit=limit, bot_id=bot_id)
         return jsonify(entries)
 
     # ───────────────────────── Pronunciation: CSV import/export ─────────────────────────
@@ -470,8 +578,9 @@ def register_routes(app):
     @app.route("/pronunciation/export.csv")
     @login_required
     async def export_csv():
-        global_rules = await database.get_global_keyword_aliases()
-        guild_rules = await database.get_guild_keyword_aliases()
+        bot_id = int(request.args.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        global_rules = await database.get_global_keyword_aliases(bot_id=bot_id)
+        guild_rules = await database.get_guild_keyword_aliases(bot_id=bot_id)
         guild_name_map = {g.id: g.name for g in current_app.bot.guilds}
 
         buf = io.StringIO()
@@ -502,6 +611,7 @@ def register_routes(app):
     @app.route("/pronunciation/import", methods=["POST"])
     @login_required
     async def import_csv():
+        bot_id = int((await request.form).get("bot_id") or request.args.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
         files = await request.files
         upload = files.get("file")
         if upload is None:
@@ -544,7 +654,7 @@ def register_routes(app):
             else:
                 valid_rows.append({"scope": "global", "guild_id": None, "keyword": keyword, "replacement": replacement})
 
-        added, skipped_db = await database.import_keyword_aliases_batch(valid_rows, _actor_id())
+        added, skipped_db = await database.import_keyword_aliases_batch(valid_rows, _actor_id(), bot_id=bot_id)
         total_skipped = skipped_pre + skipped_db
         set_notice(f"CSV import 완료: {added}개 추가 / {total_skipped}개 건너뜀", "success")
         return redirect_pronunciation()
