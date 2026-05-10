@@ -76,8 +76,8 @@ LANGUAGES = {
 }
 
 DEFAULT_USER_SETTINGS = {
-    "engine": "supertonic",
-    "voice": "M1",
+    "engine": "google",
+    "voice": "ko-KR-Standard-A",
     "speed": 1.0,
     "lang": "ko",
     "total_steps": 2,
