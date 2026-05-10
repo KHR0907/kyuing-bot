@@ -233,6 +233,29 @@
     <!-- Main content -->
     <div class="animate-slide-up">
         {% if active_section == 'overview' %}
+        <section class="mb-6 grid gap-4 xl:grid-cols-[1fr,320px]">
+            <article class="card p-5">
+                <p class="text-xs font-semibold uppercase tracking-wider text-white/25">프로젝트 전체</p>
+                <div class="mt-3 grid gap-3 sm:grid-cols-4">
+                    <div><p class="text-2xl font-bold tabular-nums">{{ project_metrics.bot_count }}</p><p class="text-xs text-white/30">활성 봇</p></div>
+                    <div><p class="text-2xl font-bold tabular-nums">{{ project_metrics.guild_count }}</p><p class="text-xs text-white/30">전체 서버</p></div>
+                    <div><p class="text-2xl font-bold tabular-nums">{{ project_metrics.active_channel_count }}</p><p class="text-xs text-white/30">전체 채널</p></div>
+                    <div><p class="text-2xl font-bold tabular-nums">{{ project_metrics.daily_requests }}</p><p class="text-xs text-white/30">오늘 전체 요청</p></div>
+                </div>
+            </article>
+            <article class="card p-5">
+                <p class="text-xs font-semibold uppercase tracking-wider text-white/25">선택된 봇</p>
+                <form class="mt-3" method="get" action="{{ bot_selector_url }}">
+                    <input type="hidden" name="section" value="{{ active_section }}">
+                    <select class="input-field" name="bot_id" onchange="this.form.submit()">
+                        {% for item in bot_records %}
+                        <option value="{{ item.id }}" {% if item.id == selected_bot_id %}selected{% endif %}>#{{ item.id }} · {{ item.name }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+                <p class="mt-2 text-xs text-white/30">{{ selected_bot.discord_username if selected_bot else 'unknown' }} · {{ selected_bot.status if selected_bot else 'unknown' }}</p>
+            </article>
+        </section>
         <!-- Stats cards -->
         <section class="grid gap-4 sm:grid-cols-3">
             <article class="stat-card card p-5">
@@ -290,7 +313,7 @@
                         </thead>
                         <tbody>
                             {% for guild in guilds %}
-                            <tr class="table-row border-b border-white/[0.03] last:border-0 cursor-pointer" onclick="location.href='/servers/{{ guild.id }}'">
+                            <tr class="table-row border-b border-white/[0.03] last:border-0 cursor-pointer" onclick="location.href='/bots/{{ selected_bot.id }}/servers/{{ guild.id }}'">
                                 <td class="px-6 py-4">
                                     <div class="flex items-center gap-3">
                                         {% if guild.icon_url %}
@@ -375,6 +398,7 @@
                                 {% if not item.enabled %}<span class="badge bg-sun/10 text-sun">disabled</span>{% endif %}
                             </div>
                             <div class="mt-1 font-mono text-[11px] text-white/25">bot_id={{ item.id }} · discord={{ item.discord_username or 'unknown' }} · pid={{ item.pid or '-' }}</div>
+                            <a href="/?section=pronunciation&bot_id={{ item.id }}" class="mt-2 inline-flex text-xs text-accent-light hover:text-white">발음 규칙 관리 →</a>
                             {% if item.last_error %}<div class="mt-1 text-xs text-coral">{{ item.last_error }}</div>{% endif %}
                         </div>
                         <div class="flex flex-wrap gap-2">
@@ -481,7 +505,23 @@
         <script id="pronunciation-data" type="application/json">{{ unified_rules|tojson }}</script>
         <script id="pronunciation-guilds" type="application/json">{{ guilds|tojson }}</script>
         <script id="pronunciation-initial-guild" type="text/plain">{{ initial_guild_filter or '' }}</script>
+        <script id="pronunciation-selected-bot" type="text/plain">{{ selected_bot_id }}</script>
         <section x-data="pronunciationApp()" x-cloak>
+            <div class="card mb-4 flex flex-wrap items-center justify-between gap-3 p-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wider text-white/25">선택된 봇</p>
+                    <h2 class="mt-1 text-lg font-semibold">{{ selected_bot.name if selected_bot else 'Unknown Bot' }}</h2>
+                    <p class="text-xs text-white/30">봇별 전역/서버별 발음 규칙을 관리합니다.</p>
+                </div>
+                <form method="get" action="{{ bot_selector_url }}" class="min-w-[260px]">
+                    <input type="hidden" name="section" value="pronunciation">
+                    <select class="input-field" name="bot_id" onchange="this.form.submit()">
+                        {% for item in bot_records %}
+                        <option value="{{ item.id }}" {% if item.id == selected_bot_id %}selected{% endif %}>#{{ item.id }} · {{ item.name }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
             {# Toolbar #}
             <div class="card mb-4 flex flex-wrap items-center gap-3 border border-white/[0.06] p-4">
                 <div class="relative flex-1 min-w-[200px]">
@@ -508,11 +548,12 @@
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
                     </button>
                     <div x-show="open" x-transition class="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-white/[0.08] bg-surface-2 shadow-xl">
-                        <a href="/pronunciation/export.csv" class="flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
+                        <a href="/pronunciation/export.csv?bot_id={{ selected_bot_id }}" class="flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             CSV 내보내기
                         </a>
-                        <form method="post" action="/pronunciation/import" enctype="multipart/form-data" class="block">
+                        <form method="post" action="/pronunciation/import?bot_id={{ selected_bot_id }}" enctype="multipart/form-data" class="block">
+                            <input type="hidden" name="bot_id" value="{{ selected_bot_id }}">
                             <label class="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                 CSV 가져오기
@@ -832,6 +873,7 @@ function pronunciationApp() {
     const initialGuildFilter = (document.getElementById('pronunciation-initial-guild')?.textContent || '').trim()
         || new URLSearchParams(window.location.search).get('guild')
         || 'all';
+    const selectedBotId = Number((document.getElementById('pronunciation-selected-bot')?.textContent || '').trim() || '1');
     return {
         rules: initialRules.map(r => ({
             ...r,
@@ -878,6 +920,7 @@ function pronunciationApp() {
                 keyword: rule._keyword.trim(),
                 replacement: rule._replacement.trim(),
             };
+            body.bot_id = selectedBotId;
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'PATCH',
                 headers: {'Content-Type': 'application/json'},
@@ -901,7 +944,7 @@ function pronunciationApp() {
                 confirmLabel: '삭제',
             });
             if (!ok) return;
-            const body = { scope: rule.scope, guild_id: rule.guild_id, keyword: rule.keyword };
+            const body = { scope: rule.scope, guild_id: rule.guild_id, keyword: rule.keyword, bot_id: selectedBotId };
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'DELETE',
                 headers: {'Content-Type': 'application/json'},
@@ -936,6 +979,7 @@ function pronunciationApp() {
                 guild_id: this.form.scope === 'guild' ? Number(this.form.guild_id) : null,
                 keyword: this.form.keyword.trim(),
                 replacement: this.form.replacement.trim(),
+                bot_id: selectedBotId,
             };
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'POST',
