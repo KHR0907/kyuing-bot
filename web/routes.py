@@ -38,7 +38,7 @@ def _format_relative(iso_str: str | None) -> str:
 
 
 def register_routes(app):
-    valid_sections = {"overview", "admins", "pronunciation", "audit"}
+    valid_sections = {"overview", "bots", "admins", "pronunciation", "audit"}
     section_aliases = {"keywords": "pronunciation"}
 
     def pop_notice():
@@ -71,6 +71,20 @@ def register_routes(app):
     def _actor_id() -> int:
         raw = session.get("user_id")
         return int(raw) if raw else 0
+
+    async def _validate_discord_bot_token(token: str) -> tuple[dict | None, str | None]:
+        import aiohttp
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                "https://discord.com/api/v10/users/@me",
+                headers={"Authorization": f"Bot {token}"},
+            ) as resp:
+                if resp.status != 200:
+                    return None, f"Discord 봇 토큰 검증 실패(status={resp.status})"
+                data = await resp.json()
+        if not data.get("bot"):
+            return None, "입력한 토큰은 Discord 봇 토큰이 아닙니다."
+        return data, None
 
     def _compute_health(metrics: dict, guilds: list) -> dict:
         today = metrics.get("daily_requests", 0)
@@ -246,9 +260,13 @@ def register_routes(app):
         # 서버 상세 → 대시보드 진입 시 guildFilter 자동 적용용
         initial_guild_filter = (request.args.get("guild") or "").strip()
 
+        bot_records = await database.get_bots()
+        project_metrics = await database.get_project_metrics()
         return await render_template(
             "dashboard.html",
             metrics=metrics,
+            project_metrics=project_metrics,
+            bot_records=bot_records,
             guilds=guilds,
             admin_entries=admin_entries,
             unified_rules=unified_rules,
@@ -303,6 +321,68 @@ def register_routes(app):
     @login_required
     async def guilds_redirect():
         return redirect(url_for("index"))
+
+    # ───────────────────────── Bots ─────────────────────────
+
+    @app.route("/bots", methods=["POST"])
+    @login_required
+    async def add_bot():
+        form = await request.form
+        name = (form.get("name") or "").strip()
+        token = (form.get("token") or "").strip()
+        if not token:
+            set_notice("Discord Bot Token을 입력해야 합니다.", "error")
+            return redirect(url_for("index", section="bots"))
+
+        bot_user, err = await _validate_discord_bot_token(token)
+        if err:
+            set_notice(err, "error")
+            return redirect(url_for("index", section="bots"))
+
+        username = bot_user.get("username") or "KYUING Bot"
+        created = await database.create_bot(
+            name or username,
+            token,
+            created_by=_actor_id(),
+            discord_bot_user_id=int(bot_user["id"]),
+            discord_username=username,
+        )
+        if created is None:
+            set_notice("이미 등록된 Discord 봇입니다.", "error")
+            return redirect(url_for("index", section="bots"))
+
+        manager = getattr(current_app, "bot_process_manager", None)
+        if manager is not None:
+            await manager.start_bot(created["id"])
+        set_notice(f"봇 `{created['name']}` 을 추가하고 시작했습니다.", "success")
+        return redirect(url_for("index", section="bots"))
+
+    @app.route("/bots/<int:bot_id>/<action>", methods=["POST"])
+    @login_required
+    async def bot_action(bot_id: int, action: str):
+        manager = getattr(current_app, "bot_process_manager", None)
+        if action not in {"start", "stop", "restart", "disable", "enable"}:
+            set_notice("지원하지 않는 봇 작업입니다.", "error")
+            return redirect(url_for("index", section="bots"))
+        if action == "enable":
+            await database.set_bot_enabled(bot_id, True)
+            if manager is not None:
+                await manager.start_bot(bot_id)
+        elif action == "disable":
+            await database.set_bot_enabled(bot_id, False)
+            if manager is not None:
+                await manager.stop_bot(bot_id)
+        elif manager is None:
+            set_notice("봇 프로세스 매니저가 초기화되지 않았습니다.", "error")
+            return redirect(url_for("index", section="bots"))
+        elif action == "start":
+            await manager.start_bot(bot_id)
+        elif action == "stop":
+            await manager.stop_bot(bot_id)
+        elif action == "restart":
+            await manager.restart_bot(bot_id)
+        set_notice(f"봇 {bot_id} 작업 `{action}` 요청 완료", "success")
+        return redirect(url_for("index", section="bots"))
 
     # ───────────────────────── Admins ─────────────────────────
 

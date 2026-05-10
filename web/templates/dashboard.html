@@ -215,6 +215,10 @@
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
                 발음 규칙
             </a>
+            <a href="/?section=bots" class="nav-pill {% if active_section == 'bots' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'bots' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/><path d="M12 11V7"/><path d="M8 3h8"/></svg>
+                봇 관리
+            </a>
             <a href="/?section=audit" class="nav-pill {% if active_section == 'audit' %}active{% endif %} flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-medium transition {% if active_section == 'audit' %}bg-white/[0.06] text-white{% else %}text-white/40 hover:bg-white/[0.03] hover:text-white/60{% endif %}">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 감사 로그
@@ -351,6 +355,59 @@
                     </div>
                     {% endfor %}
                 </div>
+            </article>
+        </section>
+
+        {% elif active_section == 'bots' %}
+        <section class="grid gap-6 xl:grid-cols-[1fr,0.9fr]">
+            <article class="card overflow-hidden">
+                <div class="border-b border-white/[0.06] px-6 py-4">
+                    <h2 class="text-[15px] font-semibold">봇 목록</h2>
+                    <p class="mt-1 text-xs text-white/30">프로젝트 전체 봇 {{ project_metrics.bot_count }}개 · 오늘 요청 {{ project_metrics.daily_requests }}건</p>
+                </div>
+                <div class="divide-y divide-white/[0.04]">
+                    {% for item in bot_records %}
+                    <div class="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+                        <div>
+                            <div class="flex items-center gap-2 text-sm font-semibold">
+                                {{ item.name }}
+                                <span class="badge {% if item.status == 'running' %}bg-mint/10 text-mint{% elif item.status == 'error' %}bg-coral/10 text-coral{% else %}bg-white/[0.06] text-white/40{% endif %}">{{ item.status }}</span>
+                                {% if not item.enabled %}<span class="badge bg-sun/10 text-sun">disabled</span>{% endif %}
+                            </div>
+                            <div class="mt-1 font-mono text-[11px] text-white/25">bot_id={{ item.id }} · discord={{ item.discord_username or 'unknown' }} · pid={{ item.pid or '-' }}</div>
+                            {% if item.last_error %}<div class="mt-1 text-xs text-coral">{{ item.last_error }}</div>{% endif %}
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <form method="post" action="/bots/{{ item.id }}/start"><button class="btn-secondary" type="submit">Start</button></form>
+                            <form method="post" action="/bots/{{ item.id }}/restart"><button class="btn-secondary" type="submit">Restart</button></form>
+                            <form method="post" action="/bots/{{ item.id }}/stop"><button class="btn-secondary" type="submit">Stop</button></form>
+                            {% if item.enabled %}
+                            <form method="post" action="/bots/{{ item.id }}/disable"><button class="btn-danger" type="submit">Disable</button></form>
+                            {% else %}
+                            <form method="post" action="/bots/{{ item.id }}/enable"><button class="btn-secondary" type="submit">Enable</button></form>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="px-6 py-10 text-center text-sm text-white/25">등록된 봇이 없습니다</div>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="card p-6">
+                <h2 class="text-[15px] font-semibold">봇 추가하기</h2>
+                <p class="mt-1 text-xs text-white/30">Discord Developer Portal에서 발급한 Bot Token을 입력합니다. 토큰은 다시 표시하지 않습니다.</p>
+                <form class="mt-5 space-y-4" method="post" action="/bots">
+                    <div>
+                        <label class="mb-2 block text-xs font-medium text-white/40">표시 이름</label>
+                        <input class="input-field" name="name" placeholder="예: KYUING 테스트 봇">
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-xs font-medium text-white/40">Discord Bot Token</label>
+                        <input class="input-field" name="token" type="password" autocomplete="off" required placeholder="토큰 입력">
+                    </div>
+                    <button class="btn-primary" type="submit">봇 추가하고 시작</button>
+                </form>
             </article>
         </section>
 

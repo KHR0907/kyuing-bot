@@ -7,3 +7,6 @@ supertonic
 google-cloud-texttospeech
 aiosqlite
 quart
+aiohttp
+pytest
+pytest-asyncio

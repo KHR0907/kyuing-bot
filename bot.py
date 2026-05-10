@@ -7,6 +7,7 @@ Discord TTS Bot (Supertonic-2 / Google TTS)
 
 
 from contextlib import suppress
+import argparse
 import asyncio
 import os
 import signal
@@ -24,19 +25,22 @@ configure_logging()
 import database
 import tts_engine
 from web.app import create_app
+from bot_process_manager import BotProcessManager
 
 # ── 봇 설정 ──
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.bot_id = database.current_bot_id()
 
 EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice"]
 
 
 async def refresh_dashboard_snapshot() -> int:
-    active_channel_count = await database.get_total_tts_channel_count()
-    await database.record_daily_snapshot(len(bot.guilds), active_channel_count)
+    active_channel_count = await database.get_total_tts_channel_count(bot_id=bot.bot_id)
+    await database.record_daily_snapshot(len(bot.guilds), active_channel_count, bot_id=bot.bot_id)
+    await database.update_bot_runtime_status(bot.bot_id, "running", pid=os.getpid(), guild_count=len(bot.guilds))
     return active_channel_count
 
 
@@ -99,13 +103,13 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
-    guild_channels = database.get_tts_channels_cached(message.guild.id)
+    guild_channels = database.get_tts_channels_cached(message.guild.id, bot_id=bot.bot_id)
     if message.channel.id in guild_channels:
         text = message.content.strip()
         if not text or text.startswith("/"):
             return
 
-        replaced_text, replacement_scope = database.resolve_keyword_replacement(message.guild.id, text)
+        replaced_text, replacement_scope = database.resolve_keyword_replacement(message.guild.id, text, bot_id=bot.bot_id)
         if replacement_scope:
             log.info(
                 "TTS 키워드 치환 scope={} guild_id={} channel_id={} user_id={} keyword={} replacement={}",
@@ -120,6 +124,7 @@ async def on_message(message):
                 replacement_scope,
                 text,
                 message.guild.id if replacement_scope == "guild" else None,
+                bot_id=bot.bot_id,
             )
             text = replaced_text
 
@@ -132,7 +137,7 @@ async def on_message(message):
             await message.reply("먼저 음성 채널에 접속해주세요!")
             return
 
-        await database.increment_daily_tts_requests()
+        await database.increment_daily_tts_requests(bot_id=bot.bot_id)
         error = await tts_engine.do_tts(
             text=text[:500],
             voice_channel=target_channel,
@@ -165,7 +170,7 @@ async def on_ready():
     log.info("봇 온라인: {} (ID: {})", bot.user, bot.user.id)
     await refresh_dashboard_owner_ids()
     active_channel_count = await refresh_dashboard_snapshot()
-    configured_guild_count = await database.get_all_tts_channel_count()
+    configured_guild_count = await database.get_all_tts_channel_count(bot_id=bot.bot_id)
     log.info("서버 {}개", len(bot.guilds))
     log.info("활성 TTS 채널 {}개", active_channel_count)
     log.info("TTS 활성 서버 {}개", configured_guild_count)
@@ -204,27 +209,34 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         await interaction.response.send_message("❌ 명령 처리 중 오류가 발생했습니다.", ephemeral=True)
 
 
-async def main():
+async def main(*, bot_id: int | None = None, run_web: bool = True):
+    if bot_id is not None:
+        database.set_current_bot_id(bot_id)
+        bot.bot_id = int(bot_id)
     await database.init_db()
 
     for ext in EXTENSIONS:
         await bot.load_extension(ext)
 
-    quart_app = create_app(bot)
     web_task = None
     flush_task = None
 
     try:
         async with bot:
-            web_task = asyncio.create_task(
-                quart_app.run_task(host="0.0.0.0", port=config.WEB_PORT),
-                name="dashboard-web-server",
-            )
+            if run_web:
+                quart_app = create_app(bot)
+                quart_app.bot_process_manager = BotProcessManager()
+                await quart_app.bot_process_manager.start_enabled_bots(exclude={bot.bot_id})
+                web_task = asyncio.create_task(
+                    quart_app.run_task(host="0.0.0.0", port=config.WEB_PORT),
+                    name="dashboard-web-server",
+                )
             flush_task = asyncio.create_task(
                 keyword_hits_flush_loop(),
                 name="keyword-hits-flush",
             )
-            await bot.start(config.DISCORD_TOKEN)
+            token = await database.get_bot_token(bot.bot_id) or config.DISCORD_TOKEN
+            await bot.start(token)
     finally:
         if flush_task is not None:
             flush_task.cancel()
@@ -234,6 +246,9 @@ async def main():
             web_task.cancel()
             with suppress(asyncio.CancelledError):
                 await web_task
+            manager = getattr(quart_app, "bot_process_manager", None)
+            if manager is not None:
+                await manager.stop_all()
         await database.close_db()
 
 
@@ -255,9 +270,19 @@ def _kill_existing_bots():
         log.warning("기존 프로세스 정리 실패: {}", e)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="KYUING Discord bot/dashboard")
+    parser.add_argument("--bot-id", type=int, default=int(os.getenv("KYUING_BOT_ID", os.getenv("BOT_ID", "1"))))
+    parser.add_argument("--worker", action="store_true", help="Run only the Discord bot worker without the web dashboard")
+    parser.add_argument("--no-kill-existing", action="store_true", help="Do not terminate older bot.py processes")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    _kill_existing_bots()
+    args = parse_args()
+    if not args.worker and not args.no_kill_existing:
+        _kill_existing_bots()
     try:
-        asyncio.run(main())
+        asyncio.run(main(bot_id=args.bot_id, run_web=not args.worker))
     except KeyboardInterrupt:
         log.info("종료 신호 수신")
