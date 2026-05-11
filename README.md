@@ -2,70 +2,274 @@
 
 [한국어](README.ko.md)
 
-`kyuing-bot` is a Discord TTS bot that reads text messages in voice channels using the [Supertonic-2](https://github.com/supertone-inc/supertonic) TTS engine. It also runs a Quart-based web dashboard with Discord OAuth login and operational statistics.
+`kyuing-bot` is a Discord TTS bot and web dashboard. It reads messages from configured text channels into Discord voice channels, supports Google Cloud Text-to-Speech by default, and can run multiple Discord bot tokens from one server/dashboard.
+
+## Current architecture
+
+A fresh installation starts one main bot process and the web dashboard:
+
+```text
+Docker container: kyuing-bot
+└─ main process: python bot.py
+   ├─ Discord bot #1 from DISCORD_TOKEN
+   └─ Web dashboard on WEB_PORT
+```
+
+Additional bots added in the dashboard are stored in SQLite and started as worker subprocesses inside the same container:
+
+```text
+Docker container: kyuing-bot
+├─ main process
+│  ├─ Discord bot #1
+│  ├─ Web dashboard
+│  └─ BotProcessManager
+└─ worker process
+   └─ python bot.py --worker --bot-id <BOT_ID> --no-kill-existing
+```
+
+Bot tokens are **not** passed as command-line arguments. Workers receive only `--bot-id` and read their token from the database, avoiding token exposure in process listings.
 
 ## Features
 
-- Automatically read messages from configured text channels into a voice channel
+- Read messages from configured text channels into a voice channel
+- Google TTS as the default TTS engine (`ko-KR-Standard-A`)
+- Optional Supertonic-2 engine support
 - Per-user TTS preferences through slash commands
-- Register and remove TTS channels per guild
-- Join, leave, and stop playback commands for voice control
-- Admin dashboard with Discord OAuth login
+- Per-bot TTS channels, keyword replacements, pronunciation rules, usage stats, and dashboard metrics
+- Multi-bot management from one dashboard: add, start, stop, restart, enable, and disable bots
+- Discord OAuth login for the admin dashboard
 - Daily usage snapshots and rotating application logs
 
-## Slash Commands
+## Slash commands
 
 - `/join`: summon the bot to your current voice channel
 - `/leave`: disconnect the bot from the voice channel
-- `/stop`: stop the current playback
+- `/stop`: stop current playback
 - `/setchannel`: register the current text channel as a TTS channel
 - `/unsetchannel`: remove TTS from the current text channel
 - `/channels`: list registered TTS channels in the current guild
-- `/voice`: choose the default voice
+- `/engine`: change your TTS engine
+- `/voice`: choose your voice for the selected engine
 - `/speed`: set playback speed
-- `/lang`: set the default language
-- `/quality`: set the synthesis quality level
+- `/lang`: set language for Supertonic
+- `/quality`: set Supertonic synthesis quality
 - `/settings`: view your current TTS preferences
-- `/voices`: list available voices
+- `/voices`: list available voices for your selected engine
+- `/pronounce`: preview keyword/pronunciation replacement
+- `/usage`: view Google TTS monthly character usage
 
-## System Requirements
+## System requirements
 
-- Docker & Docker Compose
-- Python 3.11+ (included in Docker image)
-- FFmpeg (included in Docker image)
-- RAM: 4 GB+ recommended (Supertonic-2 model is loaded into memory at startup)
+- Docker and Docker Compose plugin
+- Python 3.11+ if running without Docker
+- FFmpeg, included in the Docker image
+- For Google TTS: Google Cloud Text-to-Speech API key
+- RAM: 1 GB+ is usually enough for Google TTS; 4 GB+ recommended if using Supertonic-2 because the model is loaded locally
 
-## Quick Start
+## What a fresh clone contains
 
-### 1. Prepare environment variables
+After cloning this repository, you only have code and deployment files.
 
-Copy `.env.example` to `.env` and fill in the values.
+Included:
+
+```text
+bot.py
+database.py
+tts_engine.py
+tts_engines/
+cogs/
+web/
+tests/
+Dockerfile
+docker-compose.yml
+.env.example
+README.md
+```
+
+Not included:
+
+```text
+.env
+data/bot.db
+logs/app.log
+Discord bot tokens
+Google TTS API keys
+Existing bot registrations
+Existing dashboard data / TTS channels / keyword rules / usage stats
+```
+
+On first startup, SQLite creates `data/bot.db` and seeds one default bot record using `DISCORD_TOKEN` from `.env`:
+
+```text
+bot_id=1
+name=Default Bot
+token=<DISCORD_TOKEN from .env>
+enabled=1
+```
+
+Additional bots must be added later from the dashboard.
+
+## Discord setup
+
+### 1. Create a Discord application and bot
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Create a new application.
+3. Go to **Bot** and create/reset a bot token.
+4. Enable **Message Content Intent**. This bot reads channel messages for TTS, so this intent is required.
+5. Copy the bot token into `.env` as `DISCORD_TOKEN`.
+
+### 2. Configure OAuth for the dashboard
+
+In the same Discord application:
+
+1. Go to **OAuth2**.
+2. Copy the Client ID and Client Secret into `.env`.
+3. Add a redirect URI that exactly matches `DISCORD_REDIRECT_URI`.
+
+Local example:
+
+```text
+http://localhost:5001/callback
+```
+
+Production HTTPS example:
+
+```text
+https://your-domain.example/callback
+```
+
+### 3. Invite the bot to your Discord server
+
+Use OAuth2 URL Generator or construct an invite with these scopes:
+
+```text
+bot
+applications.commands
+```
+
+Recommended permissions:
+
+```text
+View Channels
+Send Messages
+Read Message History
+Connect
+Speak
+Use Voice Activity
+```
+
+A commonly used permission integer for these permissions is:
+
+```text
+36768768
+```
+
+## Google Cloud Text-to-Speech setup
+
+Google TTS is the default engine. To use it:
+
+1. Create or select a Google Cloud project.
+2. Enable **Cloud Text-to-Speech API**.
+3. Create an API key.
+4. Put it in `.env` as `GOOGLE_TTS_API_KEY`.
+
+Google TTS input is limited by the Google API request limit:
+
+```text
+5,000 UTF-8 bytes per request
+```
+
+That is roughly:
+
+- 5,000 ASCII characters
+- about 1,666 Korean characters, because Korean characters are usually 3 bytes in UTF-8
+
+## Quick start with Docker
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/KHR0907/kyuing-bot.git
+cd kyuing-bot
+```
+
+### 2. Create `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-### 2. Run with Docker
+Edit `.env` and fill in real values.
+
+Local development example:
+
+```env
+DISCORD_TOKEN=your_discord_bot_token
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_client_secret
+DISCORD_REDIRECT_URI=http://localhost:5001/callback
+DASHBOARD_ADMIN_IDS=your_discord_user_id
+WEB_SECRET_KEY=replace_with_a_long_random_string
+WEB_PORT=5001
+DATABASE_PATH=data/bot.db
+DAILY_STATS_RETENTION_DAYS=365
+LOG_PATH=logs/app.log
+LOG_RETENTION_DAYS=30
+SESSION_COOKIE_SECURE=false
+SESSION_COOKIE_SAMESITE=Lax
+GOOGLE_TTS_API_KEY=your_google_tts_api_key
+```
+
+Production HTTPS example differences:
+
+```env
+DISCORD_REDIRECT_URI=https://your-domain.example/callback
+SESSION_COOKIE_SECURE=true
+```
+
+### 3. Create local data directories
+
+```bash
+mkdir -p data logs
+```
+
+### 4. Build and run
 
 ```bash
 docker compose up -d --build
 ```
 
-Check logs:
+### 5. Verify startup
 
 ```bash
+docker compose ps
 docker compose logs -f app
 ```
 
-## Required Environment Variables
+Open the dashboard:
+
+```text
+http://localhost:5001/
+```
+
+or, on a server:
+
+```text
+http://<server-ip>:5001/
+```
+
+If you use a reverse proxy, point it to `127.0.0.1:5001`.
+
+## Required environment variables
 
 ```env
-DISCORD_TOKEN=your_discord_bot_token_here
-DISCORD_CLIENT_ID=your_discord_client_id_here
-DISCORD_CLIENT_SECRET=your_discord_client_secret_here
+DISCORD_TOKEN=your_discord_bot_token
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_client_secret
 DISCORD_REDIRECT_URI=https://your-domain.example/callback
 DASHBOARD_ADMIN_IDS=123456789012345678,234567890123456789
-WEB_SECRET_KEY=replace-with-a-long-random-secret
+WEB_SECRET_KEY=replace_with_a_long_random_string
 WEB_PORT=5001
 DATABASE_PATH=data/bot.db
 DAILY_STATS_RETENTION_DAYS=365
@@ -73,48 +277,52 @@ LOG_PATH=logs/app.log
 LOG_RETENTION_DAYS=30
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=Lax
+GOOGLE_TTS_API_KEY=your_google_tts_api_key
 ```
 
-## Environment Variable Details
+## Environment variable details
 
-- `DISCORD_TOKEN`: Discord bot token
-- `DISCORD_CLIENT_ID`: Discord OAuth client ID
-- `DISCORD_CLIENT_SECRET`: Discord OAuth client secret
-- `DISCORD_REDIRECT_URI`: OAuth callback URL registered in the Discord Developer Portal
-- `DASHBOARD_ADMIN_IDS`: comma-separated Discord user IDs granted dashboard admin access by default
-- `WEB_SECRET_KEY`: secret key used to sign web sessions
-- `WEB_PORT`: web dashboard port
-- `DATABASE_PATH`: SQLite database file path
-- `DAILY_STATS_RETENTION_DAYS`: retention period for daily stats
-- `LOG_PATH`: application log file path
-- `LOG_RETENTION_DAYS`: retention period for logs
-- `SESSION_COOKIE_SECURE`: should be `true` in HTTPS environments
-- `SESSION_COOKIE_SAMESITE`: SameSite value for the session cookie
+- `DISCORD_TOKEN`: token for the first/default Discord bot.
+- `DISCORD_CLIENT_ID`: Discord OAuth client ID for dashboard login.
+- `DISCORD_CLIENT_SECRET`: Discord OAuth client secret for dashboard login.
+- `DISCORD_REDIRECT_URI`: OAuth callback URL registered in the Discord Developer Portal.
+- `DASHBOARD_ADMIN_IDS`: comma-separated Discord user IDs that are allowed to access the dashboard by default.
+- `WEB_SECRET_KEY`: secret key for signing web sessions. Use a long random value in production.
+- `WEB_PORT`: dashboard port. Docker Compose maps host `WEB_PORT` to container `WEB_PORT`.
+- `DATABASE_PATH`: SQLite database path inside the container. With the default Compose file, `data/bot.db` persists to `./data/bot.db` on the host.
+- `DAILY_STATS_RETENTION_DAYS`: daily statistics retention period.
+- `LOG_PATH`: application log path inside the container. With the default Compose file, `logs/app.log` persists to `./logs/app.log` on the host.
+- `LOG_RETENTION_DAYS`: application log retention period.
+- `SESSION_COOKIE_SECURE`: set `true` behind HTTPS, set `false` for local HTTP testing.
+- `SESSION_COOKIE_SAMESITE`: session cookie SameSite value. `Lax` is the default.
+- `GOOGLE_TTS_API_KEY`: Google Cloud Text-to-Speech API key.
 
-## Server Deployment
+## Adding more bots
 
-### 1. Install Docker
+After the first bot and dashboard are running:
 
-Ubuntu example:
+1. Create another Discord application/bot in the Discord Developer Portal.
+2. Enable **Message Content Intent** for the new bot.
+3. Invite the new bot to the desired server with `bot` and `applications.commands` scopes.
+4. Log in to the dashboard.
+5. Open the bot management section.
+6. Enter the new bot name and bot token.
+7. The dashboard validates the token with Discord, stores it in SQLite, and starts a worker process.
 
-```bash
-sudo apt update
-sudo apt install -y docker.io docker-compose-plugin
-sudo systemctl enable --now docker
+The new bot will have separate `bot_id`-scoped settings:
+
+```text
+TTS channels
+keyword replacements
+pronunciation rules
+usage statistics
+dashboard metrics
+user settings
 ```
 
-### 2. Deploy the app
+On container restart, enabled bots are automatically started again by `BotProcessManager`.
 
-```bash
-git clone <repo-url>
-cd kyuing-bot
-cp .env.example .env
-mkdir -p data
-mkdir -p logs
-docker compose up -d --build
-```
-
-## Operations
+## Useful operations
 
 Restart:
 
@@ -122,17 +330,101 @@ Restart:
 docker compose restart app
 ```
 
-Update:
+Update from git:
 
 ```bash
-git pull
-docker compose up -d --build
+git pull --ff-only
+docker compose build
+docker compose up -d
 ```
 
-Logs:
+View logs:
 
 ```bash
 docker compose logs -f app
 ```
 
-Application logs are written to `logs/app.log` and retained for 30 days by default. Daily dashboard statistics are retained for 365 days by default.
+Check container status:
+
+```bash
+docker compose ps
+```
+
+Run tests locally:
+
+```bash
+python -m pytest tests/ -q
+```
+
+## Data persistence and backups
+
+The default Compose file persists these directories on the host:
+
+```text
+./data -> /app/data
+./logs -> /app/logs
+```
+
+The important file is:
+
+```text
+./data/bot.db
+```
+
+Back it up before migrations or major updates:
+
+```bash
+mkdir -p data/backups
+cp data/bot.db "data/backups/bot.db.backup-$(date +%Y%m%d-%H%M%S)"
+```
+
+## Troubleshooting
+
+### `.env` missing or `DISCORD_TOKEN` empty
+
+The app requires `DISCORD_TOKEN` for the initial bot. Create `.env` from `.env.example` and fill in the token.
+
+### Dashboard login redirects fail
+
+Check that `DISCORD_REDIRECT_URI` exactly matches the Redirect URI registered in Discord Developer Portal, including protocol, domain, port, and path.
+
+### Login works locally but not in production
+
+For HTTPS production deployments, use:
+
+```env
+SESSION_COOKIE_SECURE=true
+```
+
+For local HTTP testing, use:
+
+```env
+SESSION_COOKIE_SECURE=false
+```
+
+### Google TTS fails
+
+Check that:
+
+- `GOOGLE_TTS_API_KEY` is set
+- Cloud Text-to-Speech API is enabled in Google Cloud
+- The API key is allowed to call Text-to-Speech
+- Your text does not exceed 5,000 UTF-8 bytes
+
+### Permission errors on `data/` or `logs/`
+
+The Docker container runs as a non-root `appuser`. If mounted directories are not writable:
+
+```bash
+mkdir -p data logs
+chmod -R u+rwX,g+rwX data logs
+```
+
+If needed, adjust ownership for your server setup.
+
+## Security notes
+
+- Never commit `.env`.
+- Never paste bot tokens or API keys into issues, logs, or screenshots.
+- Bot tokens are stored in SQLite for multi-bot operation; protect `data/bot.db` like a secret.
+- Use HTTPS and a strong `WEB_SECRET_KEY` in production.
