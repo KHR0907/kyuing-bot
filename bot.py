@@ -10,6 +10,7 @@ from contextlib import suppress
 import argparse
 import asyncio
 import os
+import re
 import signal
 
 import discord
@@ -98,6 +99,41 @@ async def disconnect_if_voice_channel_empty(guild: discord.Guild):
     )
 
 
+CUSTOM_EMOJI_RE = re.compile(r"<a?:[A-Za-z0-9_~]+:\d+>")
+
+
+def _describe_attachments(message: discord.Message) -> list[str]:
+    descriptions: list[str] = []
+    for attachment in message.attachments:
+        content_type = (attachment.content_type or "").lower()
+        filename = (attachment.filename or "").lower()
+        if content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic")):
+            descriptions.append("사진을 보냈어요")
+        elif content_type.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv", ".avi")):
+            descriptions.append("동영상을 보냈어요")
+    return descriptions
+
+
+def build_tts_text(message: discord.Message) -> str:
+    parts: list[str] = []
+
+    parts.extend(_describe_attachments(message))
+
+    if message.stickers:
+        parts.extend("이모티콘을 보냈어요" for _ in message.stickers)
+
+    text = message.content.strip()
+    if text:
+        stripped = CUSTOM_EMOJI_RE.sub("", text).strip()
+        had_custom_emoji = stripped != text
+        if stripped:
+            parts.append(stripped)
+        elif had_custom_emoji:
+            parts.append("이모티콘을 보냈어요")
+
+    return " ".join(parts).strip()
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild:
@@ -105,8 +141,11 @@ async def on_message(message):
 
     guild_channels = database.get_tts_channels_cached(message.guild.id, bot_id=bot.bot_id)
     if message.channel.id in guild_channels:
-        text = message.content.strip()
-        if not text or text.startswith("/"):
+        if message.content.startswith("/"):
+            return
+
+        text = build_tts_text(message)
+        if not text:
             return
 
         user_voice_channel = message.author.voice.channel if message.author.voice else None
