@@ -83,7 +83,12 @@ async def do_tts(
             )
 
             vc = guild.voice_client
-            if vc is None:
+            if vc is None or not vc.is_connected():
+                if vc is not None:
+                    try:
+                        await vc.disconnect(force=True)
+                    except Exception:
+                        pass
                 vc = await voice_channel.connect()
             elif vc.channel != voice_channel:
                 await vc.move_to(voice_channel)
