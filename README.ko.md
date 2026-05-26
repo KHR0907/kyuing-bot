@@ -33,7 +33,7 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 
 - 지정한 텍스트 채널 메시지를 음성 채널에서 자동 재생
 - Google TTS 기본 엔진 사용 (`ko-KR-Standard-A`)
-- 선택적으로 Supertonic-2 엔진 사용 가능
+- 선택적으로 Supertonic-3 엔진 사용 가능 (31개 언어 + `na` 자동 감지, `<laugh>` 등 표현 태그)
 - 슬래시 명령어 기반 개인별 TTS 설정
 - 봇별 TTS 채널, 키워드 치환, 발음 규칙, 사용량 통계, 대시보드 지표 분리
 - 하나의 대시보드에서 멀티봇 추가/시작/중지/재시작/활성화/비활성화 관리
@@ -64,7 +64,7 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 - Docker 없이 실행한다면 Python 3.11+
 - FFmpeg, Docker 이미지에 포함됨
 - Google TTS 사용 시 Google Cloud Text-to-Speech API Key
-- RAM: Google TTS만 사용하면 보통 1 GB+로 충분, Supertonic-2 사용 시 로컬 모델 로딩 때문에 4 GB+ 권장
+- RAM: Google TTS만 사용하면 보통 1 GB+로 충분, Supertonic-3 사용 시 로컬 모델 로딩 때문에 4 GB+ 권장
 
 ## fresh clone 직후 상태
 

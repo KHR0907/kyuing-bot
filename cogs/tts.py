@@ -74,29 +74,43 @@ class TTSCog(commands.Cog):
         await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, speed=speed)
         await interaction.response.send_message(f"✅ 속도 → **{speed}x**", ephemeral=True)
 
-    @app_commands.command(name="lang", description="기본 언어를 변경합니다")
-    @app_commands.choices(
-        lang=[app_commands.Choice(name=f"{l} ({c})", value=c) for c, l in LANGUAGES.items()]
-    )
+    @app_commands.command(name="lang", description="기본 언어를 변경합니다 (Supertonic 3, 31개 언어 + 자동 감지)")
     async def cmd_lang(self, interaction: discord.Interaction, lang: str):
+        if lang not in LANGUAGES:
+            await interaction.response.send_message(
+                f"❌ 지원하지 않는 언어 코드입니다: `{lang}`", ephemeral=True,
+            )
+            return
         await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, lang=lang)
         await interaction.response.send_message(
-            f"✅ 언어 → **{LANGUAGES[lang]}**", ephemeral=True,
+            f"✅ 언어 → **{LANGUAGES[lang]}** (`{lang}`)", ephemeral=True,
         )
+
+    @cmd_lang.autocomplete("lang")
+    async def lang_autocomplete(
+        self, interaction: discord.Interaction, current: str,
+    ) -> list[app_commands.Choice[str]]:
+        query = current.lower()
+        return [
+            app_commands.Choice(name=f"{label} ({code})", value=code)
+            for code, label in LANGUAGES.items()
+            if not query or query in code.lower() or query in label.lower()
+        ][:25]
 
     @app_commands.command(name="quality", description="품질(추론 스텝)을 변경합니다 (Supertonic 전용)")
     @app_commands.choices(
         steps=[
-            app_commands.Choice(name="2 스텝 (빠름)", value=2),
-            app_commands.Choice(name="5 스텝 (고품질)", value=5),
-            app_commands.Choice(name="10 스텝 (최고품질)", value=10),
+            app_commands.Choice(name="5 스텝 (빠름)", value=5),
+            app_commands.Choice(name="8 스텝 (기본 권장)", value=8),
+            app_commands.Choice(name="10 스텝 (고품질)", value=10),
+            app_commands.Choice(name="12 스텝 (최고품질)", value=12),
         ]
     )
     async def cmd_quality(self, interaction: discord.Interaction, steps: int):
         settings = await database.get_user_settings(interaction.user.id, bot_id=self.bot.bot_id)
         if settings["engine"] != "supertonic":
             await interaction.response.send_message(
-                "❌ 품질 설정은 **Supertonic-2** 엔진에서만 사용할 수 있습니다.", ephemeral=True,
+                "❌ 품질 설정은 **Supertonic-3** 엔진에서만 사용할 수 있습니다.", ephemeral=True,
             )
             return
         await database.set_user_setting(interaction.user.id, bot_id=self.bot.bot_id, total_steps=steps)

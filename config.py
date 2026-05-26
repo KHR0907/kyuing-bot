@@ -47,7 +47,7 @@ LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
 
 # TTS 엔진
 TTS_ENGINES = {
-    "supertonic": "Supertonic-2",
+    "supertonic": "Supertonic-3",
     "google": "Google TTS",
 }
 
@@ -71,14 +71,28 @@ GOOGLE_TTS_FREE_LIMIT = 4_000_000
 # 하위 호환용 (VOICES = 현재 기본 엔진의 보이스)
 VOICES = SUPERTONIC_VOICES
 
+# Supertonic 3는 31개 언어 + 자동 감지(na) 지원
 LANGUAGES = {
-    "ko": "한국어", "en": "English", "es": "Español", "pt": "Português", "fr": "Français",
+    "na": "자동 감지",
+    "ko": "한국어", "en": "English", "ja": "日本語",
+    "es": "Español", "pt": "Português", "fr": "Français", "de": "Deutsch",
+    "it": "Italiano", "nl": "Nederlands", "ru": "Русский", "uk": "Українська",
+    "pl": "Polski", "cs": "Čeština", "sk": "Slovenčina", "hu": "Magyar",
+    "ro": "Română", "bg": "Български", "hr": "Hrvatski", "sl": "Slovenščina",
+    "sv": "Svenska", "da": "Dansk", "fi": "Suomi", "et": "Eesti",
+    "lv": "Latviešu", "lt": "Lietuvių", "el": "Ελληνικά", "tr": "Türkçe",
+    "ar": "العربية", "hi": "हिन्दी", "id": "Bahasa Indonesia", "vi": "Tiếng Việt",
 }
+
+# Supertonic 3 권장 추론 스텝 범위 (5~12, 기본 8)
+SUPERTONIC_DEFAULT_STEPS = 8
+SUPERTONIC_MIN_STEPS = 5
+SUPERTONIC_MAX_STEPS = 12
 
 DEFAULT_USER_SETTINGS = {
     "engine": "google",
     "voice": "ko-KR-Standard-A",
     "speed": 1.0,
     "lang": "ko",
-    "total_steps": 2,
+    "total_steps": SUPERTONIC_DEFAULT_STEPS,
 }

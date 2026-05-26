@@ -73,7 +73,7 @@ async def _create_multibot_tables():
             CREATE TABLE IF NOT EXISTS user_settings_v2 (
                 bot_id INTEGER NOT NULL DEFAULT 1, user_id INTEGER NOT NULL,
                 engine TEXT DEFAULT 'supertonic', voice TEXT DEFAULT 'M1', speed REAL DEFAULT 1.0,
-                lang TEXT DEFAULT 'ko', total_steps INTEGER DEFAULT 2,
+                lang TEXT DEFAULT 'ko', total_steps INTEGER DEFAULT 8,
                 PRIMARY KEY (bot_id, user_id))
         """,
         "tts_char_usage_v2": """
@@ -148,6 +148,8 @@ async def _migrate_existing_data_to_multibot():
     if token:
         await _db.execute("UPDATE bots SET token = CASE WHEN token = '' THEN ? ELSE token END WHERE id = 1", (token,))
     await _copy_if_old_exists("user_settings", "user_settings_v2", ["user_id", "engine", "voice", "speed", "lang", "total_steps"])
+    # Supertonic 3 권장 기본 스텝(8)으로 v2 시절 저장된 값(<5) 끌어올리기
+    await _db.execute("UPDATE user_settings_v2 SET total_steps = 8 WHERE total_steps < 5")
     await _copy_if_old_exists("tts_char_usage", "tts_char_usage_v2", ["voice_type", "month", "char_count"])
     await _copy_if_old_exists("tts_channels", "tts_channels_v2", ["guild_id", "channel_id"])
     await _copy_if_old_exists("daily_stats", "daily_stats_v2", ["day", "tts_requests", "guild_count", "active_channel_count"])

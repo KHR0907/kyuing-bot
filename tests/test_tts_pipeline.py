@@ -44,7 +44,7 @@ async def test_do_tts_applies_keyword_replacement_before_engine_synthesis(monkey
             "voice": "ko-KR-Standard-A",
             "speed": 1.0,
             "lang": "ko",
-            "total_steps": 2,
+            "total_steps": 8,
         }
 
     class FakeDatabase:

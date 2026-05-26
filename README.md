@@ -33,7 +33,7 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 
 - Read messages from configured text channels into a voice channel
 - Google TTS as the default TTS engine (`ko-KR-Standard-A`)
-- Optional Supertonic-2 engine support
+- Optional Supertonic-3 engine support (31 languages + `na` auto-detect, expression tags like `<laugh>`)
 - Per-user TTS preferences through slash commands
 - Per-bot TTS channels, keyword replacements, pronunciation rules, usage stats, and dashboard metrics
 - Multi-bot management from one dashboard: add, start, stop, restart, enable, and disable bots
@@ -64,7 +64,7 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 - Python 3.11+ if running without Docker
 - FFmpeg, included in the Docker image
 - For Google TTS: Google Cloud Text-to-Speech API key
-- RAM: 1 GB+ is usually enough for Google TTS; 4 GB+ recommended if using Supertonic-2 because the model is loaded locally
+- RAM: 1 GB+ is usually enough for Google TTS; 4 GB+ recommended if using Supertonic-3 because the model is loaded locally
 
 ## What a fresh clone contains
 

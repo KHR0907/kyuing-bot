@@ -1,5 +1,5 @@
 """
-Discord TTS Bot (Supertonic-2 / Google TTS)
+Discord TTS Bot (Supertonic-3 / Google TTS)
 - 지정 채널에 메시지 치면 자동으로 읽어줌
 - /engine, /voice, /speed, /lang, /quality 등 슬래시 명령어 지원
 - 웹 대시보드로 운영 현황 모니터링
@@ -235,6 +235,13 @@ async def main(*, bot_id: int | None = None, run_web: bool = True):
         database.set_current_bot_id(bot_id)
         bot.bot_id = int(bot_id)
     await database.init_db()
+
+    try:
+        from tts_engines.supertonic_engine import prune_unused_model_caches
+
+        prune_unused_model_caches()
+    except Exception as exc:
+        log.warning("supertonic 캐시 정리 중 예외 — 무시하고 계속: {}", exc)
 
     for ext in EXTENSIONS:
         await bot.load_extension(ext)
