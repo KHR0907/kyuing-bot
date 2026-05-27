@@ -51,8 +51,8 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 - `/engine`: change your TTS engine
 - `/voice`: choose your voice for the selected engine
 - `/speed`: set playback speed
-- `/lang`: set language for Supertonic
-- `/quality`: set Supertonic synthesis quality
+- `/lang`: set the Supertonic language (31 languages + `na` auto-detect, chosen via autocomplete)
+- `/quality`: set Supertonic synthesis quality (inference steps: 5 / 8 / 10 / 12, default 8)
 - `/settings`: view your current TTS preferences
 - `/voices`: list available voices for your selected engine
 - `/pronounce`: preview keyword/pronunciation replacement
@@ -74,16 +74,21 @@ Included:
 
 ```text
 bot.py
+bot_process_manager.py
+config.py
 database.py
+logging_setup.py
 tts_engine.py
 tts_engines/
 cogs/
 web/
 tests/
+requirements.txt
 Dockerfile
 docker-compose.yml
 .env.example
 README.md
+README.ko.md
 ```
 
 Not included:

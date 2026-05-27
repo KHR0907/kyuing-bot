@@ -51,8 +51,8 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 - `/engine`: 내 TTS 엔진 변경
 - `/voice`: 현재 엔진에서 사용할 음성 선택
 - `/speed`: 읽기 속도 설정
-- `/lang`: Supertonic 언어 설정
-- `/quality`: Supertonic 음성 품질 설정
+- `/lang`: Supertonic 언어 설정 (31개 언어 + `na` 자동 감지, autocomplete로 선택)
+- `/quality`: Supertonic 음성 품질 설정 (추론 스텝 5 / 8 / 10 / 12, 기본값 8)
 - `/settings`: 내 TTS 설정 확인
 - `/voices`: 현재 엔진에서 사용 가능한 음성 목록 확인
 - `/pronounce`: 키워드/발음 치환 미리보기
@@ -74,16 +74,21 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 
 ```text
 bot.py
+bot_process_manager.py
+config.py
 database.py
+logging_setup.py
 tts_engine.py
 tts_engines/
 cogs/
 web/
 tests/
+requirements.txt
 Dockerfile
 docker-compose.yml
 .env.example
 README.md
+README.ko.md
 ```
 
 포함되지 않는 것:
