@@ -144,3 +144,45 @@ def test_validate_tts_input_limit_uses_engine_specific_google_byte_limit(engine,
     tts_engine = reload_tts_engine()
 
     assert tts_engine.validate_tts_input_limit(text, engine) == expected_error
+
+
+@pytest.mark.asyncio
+async def test_play_sound_waits_until_playback_finishes(monkeypatch, tmp_path):
+    tts_engine = reload_tts_engine()
+
+    sleep_calls = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(tts_engine.asyncio, "sleep", fake_sleep)
+
+    class FakeVoiceClient:
+        channel = object()
+
+        def __init__(self):
+            self._polls_remaining = 4
+
+        def is_connected(self):
+            return True
+
+        def is_playing(self):
+            if self._polls_remaining > 0:
+                self._polls_remaining -= 1
+                return True
+            return False
+
+        def stop(self):
+            pass
+
+        def play(self, audio):
+            pass
+
+    guild = types.SimpleNamespace(id=999, voice_client=FakeVoiceClient())
+    sound_file = tmp_path / "sound.ogg"
+    sound_file.write_bytes(b"ogg")
+
+    error = await tts_engine.play_sound(str(sound_file), guild.voice_client.channel, guild)
+
+    assert error is None
+    assert sleep_calls == [0.5, 0.5, 0.5]

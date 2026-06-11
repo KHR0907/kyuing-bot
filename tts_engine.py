@@ -126,6 +126,7 @@ async def play_sound(
 ) -> str | None:
     """사운드보드 음원 파일을 재생한다. TTS와 같은 길드 락을 공유해 순서를 보장한다."""
     async with _locks[guild.id]:
+        vc = None
         try:
             vc = await _ensure_voice_client(guild, voice_channel)
             if vc.is_playing():
@@ -139,3 +140,7 @@ async def play_sound(
             return None
         except Exception as e:
             return f"사운드 재생 오류: {str(e)}"
+        finally:
+            # 예외/취소로 빠져나갈 때 FFmpeg 재생이 남지 않도록 정리
+            if vc is not None and vc.is_playing():
+                vc.stop()
