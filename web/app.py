@@ -13,6 +13,7 @@ from config import (
     DISCORD_REDIRECT_URI,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    SOUND_MAX_FILE_BYTES,
     WEB_SECRET_KEY,
 )
 
@@ -82,6 +83,7 @@ def create_app(bot):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
         SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
+        MAX_CONTENT_LENGTH=SOUND_MAX_FILE_BYTES,
     )
     app.bot = bot
     app.bot_process_manager = None

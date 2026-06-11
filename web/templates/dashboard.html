@@ -820,7 +820,7 @@
                             <td class="py-2 pr-4">{{ '%.1f'|format(s.duration_seconds) }}초</td>
                             <td class="py-2 pr-4">{{ s.play_count }}회</td>
                             <td class="py-2 text-right">
-                                <form method="post" action="/sounds/{{ s.id }}/delete" onsubmit="return confirm('음원 {{ s.keyword }} 을(를) 삭제할까요?');">
+                                <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
                                 </form>
                             </td>
@@ -833,7 +833,7 @@
                             <td class="py-2 pr-4">{{ '%.1f'|format(s.duration_seconds) }}초</td>
                             <td class="py-2 pr-4">{{ s.play_count }}회</td>
                             <td class="py-2 text-right">
-                                <form method="post" action="/sounds/{{ s.id }}/delete" onsubmit="return confirm('음원 {{ s.keyword }} 을(를) 삭제할까요?');">
+                                <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
                                 </form>
                             </td>
