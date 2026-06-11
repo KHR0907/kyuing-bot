@@ -56,13 +56,17 @@ class SoundCog(commands.Cog):
             await interaction.followup.send(f"❌ {e}", ephemeral=True)
             return
 
-        created = await database.add_sound(
-            "guild", keyword, filename, duration,
-            guild_id=interaction.guild.id,
-            original_filename=file.filename,
-            created_by=interaction.user.id,
-            bot_id=self.bot.bot_id,
-        )
+        try:
+            created = await database.add_sound(
+                "guild", keyword, filename, duration,
+                guild_id=interaction.guild.id,
+                original_filename=file.filename,
+                created_by=interaction.user.id,
+                bot_id=self.bot.bot_id,
+            )
+        except Exception:
+            sound_storage.delete_sound_file(filename, bot_id=self.bot.bot_id)
+            raise
         if created is None:
             sound_storage.delete_sound_file(filename, bot_id=self.bot.bot_id)
             await interaction.followup.send(f"❌ 이미 등록된 키워드입니다: `{keyword}`", ephemeral=True)
@@ -81,17 +85,18 @@ class SoundCog(commands.Cog):
         if interaction.guild is None:
             await interaction.response.send_message("❌ 서버 안에서만 사용할 수 있습니다.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True)
         removed = await database.remove_sound(
             "guild", keyword.strip(), guild_id=interaction.guild.id, bot_id=self.bot.bot_id,
         )
         if removed is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ 이 서버에 등록된 키워드가 아닙니다: `{keyword}`", ephemeral=True,
             )
             return
-        sound_storage.delete_sound_file(removed["filename"], bot_id=self.bot.bot_id)
+        sound_storage.delete_sound_file(removed["filename"], bot_id=removed["bot_id"])
         log.info("사운드 삭제 guild_id={} keyword={} user_id={}", interaction.guild.id, keyword, interaction.user.id)
-        await interaction.response.send_message(f"🗑️ 음원 삭제 완료: `{keyword}`", ephemeral=True)
+        await interaction.followup.send(f"🗑️ 음원 삭제 완료: `{keyword}`", ephemeral=True)
 
     @cmd_sound_remove.autocomplete("keyword")
     async def remove_autocomplete(
@@ -166,7 +171,10 @@ class SoundCog(commands.Cog):
         if error:
             await interaction.followup.send(f"❌ {error}")
             return
-        await database.increment_sound_play_count(sound["id"])
+        try:
+            await database.increment_sound_play_count(sound["id"])
+        except Exception as e:
+            log.warning("재생 카운트 갱신 실패 sound_id={}: {}", sound["id"], e)
         log.info("사운드 재생 guild_id={} keyword={} user_id={}", interaction.guild.id, keyword, interaction.user.id)
         await interaction.followup.send(f"🔊 `{keyword}` 재생 완료")
 
