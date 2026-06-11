@@ -142,6 +142,7 @@ async def test_save_sound_file_rejects_oversize(monkeypatch, tmp_path):
 async def test_save_sound_file_rejects_long_audio(monkeypatch, tmp_path):
     sound_storage = _load_sound_storage()
     monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+    monkeypatch.setattr(sound_storage, "SOUND_MAX_DURATION_SECONDS", 8.0)
 
     async def fake_run(*args):
         payload = {"streams": [{"codec_type": "audio"}], "format": {"duration": "8.5"}}

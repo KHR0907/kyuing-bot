@@ -43,8 +43,9 @@ def parse_probe_output(raw: str) -> float | None:
     streams = data.get("streams") or []
     if not any(s.get("codec_type") == "audio" for s in streams):
         return None
+    fmt = data.get("format") or {}
     try:
-        return float(data.get("format", {}).get("duration"))
+        return float(fmt.get("duration"))
     except (TypeError, ValueError):
         return None
 
@@ -52,8 +53,7 @@ def parse_probe_output(raw: str) -> float | None:
 async def probe_audio_duration(path: str) -> float | None:
     rc, stdout, _stderr = await _run(
         "ffprobe", "-v", "error",
-        "-show_entries", "stream=codec_type",
-        "-show_entries", "format=duration",
+        "-show_entries", "stream=codec_type:format=duration",
         "-of", "json", path,
     )
     if rc != 0:
@@ -78,6 +78,8 @@ async def save_sound_file(data: bytes, *, bot_id: int) -> tuple[str, float]:
         duration = await probe_audio_duration(src.name)
         if duration is None:
             raise SoundValidationError("오디오 트랙을 찾을 수 없는 파일입니다.")
+        if duration <= 0:
+            raise SoundValidationError("오디오 길이를 읽을 수 없는 파일입니다.")
         if duration > SOUND_MAX_DURATION_SECONDS:
             raise SoundValidationError(
                 f"음원 길이는 {SOUND_MAX_DURATION_SECONDS:.0f}초 이하여야 합니다. (현재 {duration:.1f}초)"
@@ -94,12 +96,14 @@ async def save_sound_file(data: bytes, *, bot_id: int) -> tuple[str, float]:
             str(dest),
         )
         if rc != 0:
-            log.warning("ffmpeg 변환 실패 rc={} stderr={}", rc, stderr[-500:])
+            log.warning("ffmpeg 변환 실패 rc={} stderr={}", rc, stderr[-500:].decode("utf-8", errors="replace"))
             with suppress(OSError):
                 dest.unlink(missing_ok=True)
             raise SoundValidationError("오디오 변환에 실패했습니다. 파일 형식을 확인해주세요.")
         return filename, duration
     finally:
+        with suppress(OSError):
+            src.close()
         with suppress(OSError):
             os.unlink(src.name)
 
