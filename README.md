@@ -39,6 +39,7 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 - Multi-bot management from one dashboard: add, start, stop, restart, enable, and disable bots
 - Discord OAuth login for the admin dashboard
 - Daily usage snapshots and rotating application logs
+- Soundboard: register short audio clips (8 seconds max, mp4/mp3/wav/ogg/webm) with keywords and play them with `/play`
 
 ## Slash commands
 
@@ -57,6 +58,10 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 - `/voices`: list available voices for your selected engine
 - `/pronounce`: preview keyword/pronunciation replacement
 - `/usage`: view Google TTS monthly character usage
+- `/sound add`: register an audio clip (max 8s) with a keyword in the current server
+- `/sound remove`: delete a sound registered in the current server
+- `/sound list`: list available sounds (server + global)
+- `/play`: play a registered sound in your voice channel
 
 ## System requirements
 
@@ -96,6 +101,7 @@ Not included:
 ```text
 .env
 data/bot.db
+data/sounds/
 logs/app.log
 Discord bot tokens
 Google TTS API keys

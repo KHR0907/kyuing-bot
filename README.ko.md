@@ -39,6 +39,7 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 - 하나의 대시보드에서 멀티봇 추가/시작/중지/재시작/활성화/비활성화 관리
 - Discord OAuth 기반 관리자 대시보드
 - 일별 통계 스냅샷 및 애플리케이션 로그 보관
+- 사운드보드: 8초 이하 음원(mp4/mp3/wav/ogg/webm)을 키워드로 등록하고 `/play`로 재생
 
 ## 슬래시 명령어
 
@@ -57,6 +58,10 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 - `/voices`: 현재 엔진에서 사용 가능한 음성 목록 확인
 - `/pronounce`: 키워드/발음 치환 미리보기
 - `/usage`: Google TTS 월간 문자 사용량 확인
+- `/sound add`: 현재 서버에 음원(8초 이하)을 키워드와 함께 등록
+- `/sound remove`: 현재 서버에 등록된 음원 삭제
+- `/sound list`: 사용 가능한 음원 목록 (서버 + 전역)
+- `/play`: 등록된 음원을 음성 채널에서 재생
 
 ## 시스템 요구사항
 
@@ -96,6 +101,7 @@ README.ko.md
 ```text
 .env
 data/bot.db
+data/sounds/
 logs/app.log
 Discord Bot Token
 Google TTS API Key
