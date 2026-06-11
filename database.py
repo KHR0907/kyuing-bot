@@ -134,6 +134,13 @@ async def _create_multibot_tables():
     await _db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sounds_unique ON sounds (bot_id, scope, COALESCE(guild_id, 0), keyword)"
     )
+    # resolve_sound 핫패스용 조회 인덱스 (COALESCE 식 유니크 인덱스는 일반 동등 조회에 쓰이지 못함)
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sounds_guild_lookup ON sounds (bot_id, guild_id, keyword) WHERE scope = 'guild'"
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sounds_global_lookup ON sounds (bot_id, keyword) WHERE scope = 'global'"
+    )
 
 
 async def _copy_if_old_exists(old: str, new: str, cols: list[str]):
@@ -771,31 +778,28 @@ async def get_guild_sound_count(guild_id: int, bot_id: int | None = None) -> int
 
 async def remove_sound(scope: str, keyword: str, *, guild_id: int | None = None, bot_id: int | None = None) -> dict | None:
     """삭제된 행을 반환한다 (디스크 파일 정리는 호출자 책임). 없으면 None."""
+    if scope not in ("global", "guild") or (scope == "guild" and guild_id is None):
+        return None
     bid = _bot_id(bot_id)
     if scope == "guild":
-        if guild_id is None:
-            return None
-        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ? AND keyword = ?"
+        sql = f"DELETE FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ? AND keyword = ? RETURNING {_SOUND_COLS}"
         params: tuple = (bid, guild_id, keyword)
     else:
-        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'global' AND keyword = ?"
+        sql = f"DELETE FROM sounds WHERE bot_id = ? AND scope = 'global' AND keyword = ? RETURNING {_SOUND_COLS}"
         params = (bid, keyword)
     async with _db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
-    if row is None:
-        return None
-    await _db.execute("DELETE FROM sounds WHERE id = ?", (row[0],))
     await _db.commit()
-    return _sound_row_to_dict(row)
+    return _sound_row_to_dict(row) if row else None
 
 
 async def remove_sound_by_id(sound_id: int) -> dict | None:
-    sound = await get_sound_by_id(sound_id)
-    if sound is None:
-        return None
-    await _db.execute("DELETE FROM sounds WHERE id = ?", (int(sound_id),))
+    async with _db.execute(
+        f"DELETE FROM sounds WHERE id = ? RETURNING {_SOUND_COLS}", (int(sound_id),),
+    ) as cursor:
+        row = await cursor.fetchone()
     await _db.commit()
-    return sound
+    return _sound_row_to_dict(row) if row else None
 
 
 async def increment_sound_play_count(sound_id: int):
