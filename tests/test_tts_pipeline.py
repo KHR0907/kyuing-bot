@@ -101,6 +101,35 @@ async def test_do_tts_applies_keyword_replacement_before_engine_synthesis(monkey
     assert synthesize_calls[0][1] == "치환된 문장"
 
 
+@pytest.mark.asyncio
+async def test_play_sound_plays_file_without_deleting_it(tmp_path):
+    tts_engine = reload_tts_engine()
+
+    calls = []
+
+    class FakeVoiceClient:
+        channel = object()
+
+        def is_connected(self):
+            return True
+
+        def is_playing(self):
+            return False
+
+        def play(self, audio):
+            calls.append(("play", audio))
+
+    guild = types.SimpleNamespace(id=888, voice_client=FakeVoiceClient())
+    sound_file = tmp_path / "sound.ogg"
+    sound_file.write_bytes(b"ogg")
+
+    error = await tts_engine.play_sound(str(sound_file), guild.voice_client.channel, guild)
+
+    assert error is None
+    assert calls == [("play", str(sound_file))]
+    assert sound_file.exists()  # TTS와 달리 재생 후 파일을 지우지 않는다
+
+
 @pytest.mark.parametrize(
     ("engine", "text", "expected_error"),
     [
