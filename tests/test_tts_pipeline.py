@@ -69,6 +69,9 @@ async def test_do_tts_applies_keyword_replacement_before_engine_synthesis(monkey
     class FakeVoiceClient:
         channel = object()
 
+        def is_connected(self):
+            return True
+
         def is_playing(self):
             return False
 

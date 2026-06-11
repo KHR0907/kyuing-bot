@@ -6,7 +6,7 @@ TEMPLATE = ROOT / "web" / "templates" / "dashboard.html"
 
 
 def test_routes_resolve_selected_bot_and_scope_dashboard_queries():
-    routes = ROUTES.read_text()
+    routes = ROUTES.read_text(encoding="utf-8")
     assert "selected_bot_id" in routes
     assert "selected_bot = await database.get_bot(selected_bot_id)" in routes
     assert "get_dashboard_metrics(guild_count, active_channel_count, bot_id=selected_bot_id)" in routes
@@ -16,7 +16,7 @@ def test_routes_resolve_selected_bot_and_scope_dashboard_queries():
 
 
 def test_routes_support_bot_scoped_server_detail_and_csv():
-    routes = ROUTES.read_text()
+    routes = ROUTES.read_text(encoding="utf-8")
     assert '@app.route("/bots/<int:bot_id>/servers/<int:guild_id>")' in routes
     assert "get_guild_keyword_aliases_for(guild_id, bot_id=bot_id)" in routes
     assert "get_global_keyword_aliases(bot_id=bot_id)" in routes
@@ -25,7 +25,7 @@ def test_routes_support_bot_scoped_server_detail_and_csv():
 
 
 def test_dashboard_template_has_project_overall_and_per_bot_ux():
-    template = TEMPLATE.read_text()
+    template = TEMPLATE.read_text(encoding="utf-8")
     assert "프로젝트 전체" in template
     assert "선택된 봇" in template
     assert "selected_bot" in template
@@ -36,7 +36,7 @@ def test_dashboard_template_has_project_overall_and_per_bot_ux():
 
 
 def test_pronunciation_js_sends_bot_id_with_rule_mutations():
-    template = TEMPLATE.read_text()
+    template = TEMPLATE.read_text(encoding="utf-8")
     assert "const selectedBotId" in template
     assert "body.bot_id = selectedBotId" in template
     assert "bot_id: selectedBotId" in template
