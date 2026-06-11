@@ -6,7 +6,7 @@ from loguru import logger as log
 import database
 import sound_storage
 import tts_engine
-from config import SOUND_MAX_KEYWORD_LENGTH, SOUND_MAX_PER_GUILD
+from config import SOUND_MAX_FILE_BYTES, SOUND_MAX_KEYWORD_LENGTH, SOUND_MAX_PER_GUILD
 
 
 class SoundCog(commands.Cog):
@@ -45,6 +45,12 @@ class SoundCog(commands.Cog):
         if await database.get_guild_sound_count(interaction.guild.id, bot_id=self.bot.bot_id) >= SOUND_MAX_PER_GUILD:
             await interaction.response.send_message(
                 f"❌ 서버당 음원은 최대 {SOUND_MAX_PER_GUILD}개까지 등록할 수 있습니다.", ephemeral=True,
+            )
+            return
+        if file.size > SOUND_MAX_FILE_BYTES:
+            mb = SOUND_MAX_FILE_BYTES // (1024 * 1024)
+            await interaction.response.send_message(
+                f"❌ 파일이 너무 큽니다. (최대 {mb}MB)", ephemeral=True,
             )
             return
 

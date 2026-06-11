@@ -809,6 +809,8 @@
                             <th class="py-2 pr-4">키워드</th>
                             <th class="py-2 pr-4">길이</th>
                             <th class="py-2 pr-4">재생</th>
+                            <th class="py-2 pr-4">등록자</th>
+                            <th class="py-2 pr-4">등록일</th>
                             <th class="py-2"></th>
                         </tr>
                     </thead>
@@ -819,6 +821,8 @@
                             <td class="py-2 pr-4 font-medium text-white">{{ s.keyword }}</td>
                             <td class="py-2 pr-4">{{ '%.1f'|format(s.duration_seconds) }}초</td>
                             <td class="py-2 pr-4">{{ s.play_count }}회</td>
+                            <td class="py-2 pr-4">{{ s.created_by or '—' }}</td>
+                            <td class="py-2 pr-4">{{ s.created_label }}</td>
                             <td class="py-2 text-right">
                                 <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
@@ -832,6 +836,8 @@
                             <td class="py-2 pr-4 font-medium text-white">{{ s.keyword }}</td>
                             <td class="py-2 pr-4">{{ '%.1f'|format(s.duration_seconds) }}초</td>
                             <td class="py-2 pr-4">{{ s.play_count }}회</td>
+                            <td class="py-2 pr-4">{{ s.created_by or '—' }}</td>
+                            <td class="py-2 pr-4">{{ s.created_label }}</td>
                             <td class="py-2 text-right">
                                 <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
@@ -840,7 +846,7 @@
                         </tr>
                         {% endfor %}
                         {% if not global_sounds and not guild_sounds %}
-                        <tr><td colspan="5" class="py-6 text-center text-white/30">등록된 음원이 없습니다.</td></tr>
+                        <tr><td colspan="7" class="py-6 text-center text-white/30">등록된 음원이 없습니다.</td></tr>
                         {% endif %}
                     </tbody>
                 </table>

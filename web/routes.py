@@ -223,6 +223,8 @@ def register_routes(app):
         guild_sounds = await database.get_guild_sounds(bot_id=selected_bot_id)
         for s in guild_sounds:
             s["guild_name"] = guild_name_map.get(s["guild_id"], f"Unknown ({s['guild_id']})")
+        for s in (*global_sounds, *guild_sounds):
+            s["created_label"] = _format_relative(s["created_at"])
 
         # 통합 규칙 리스트 + 충돌 마킹
         global_keyword_set = {item["keyword"] for item in global_keyword_aliases}
@@ -424,7 +426,11 @@ def register_routes(app):
     @login_required
     async def upload_sound():
         form = await request.form
-        bot_id = int(form.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        try:
+            bot_id = int(form.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        except (TypeError, ValueError):
+            set_notice("봇 ID가 올바르지 않습니다.", "error")
+            return redirect_sounds()
         scope = (form.get("scope") or "").strip()
         keyword = (form.get("keyword") or "").strip()
         raw_guild_id = (form.get("guild_id") or "").strip()
