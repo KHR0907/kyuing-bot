@@ -112,6 +112,14 @@ async def _create_multibot_tables():
                 action TEXT NOT NULL, scope TEXT NOT NULL, guild_id INTEGER, keyword TEXT NOT NULL,
                 old_keyword TEXT, old_replacement TEXT, new_replacement TEXT)
         """,
+        "sounds": """
+            CREATE TABLE IF NOT EXISTS sounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL DEFAULT 1,
+                scope TEXT NOT NULL CHECK(scope IN ('global', 'guild')), guild_id INTEGER,
+                keyword TEXT NOT NULL, filename TEXT NOT NULL, duration_seconds REAL NOT NULL,
+                original_filename TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                play_count INTEGER NOT NULL DEFAULT 0)
+        """,
     }
     for sql in table_sql.values():
         await _db.execute(sql)
@@ -121,6 +129,11 @@ async def _create_multibot_tables():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)
     """)
     await _db.execute("CREATE INDEX IF NOT EXISTS idx_audit_v2_timestamp ON pronunciation_audit_v2 (timestamp DESC)")
+    # SQLite UNIQUE 제약은 NULL을 서로 다른 값으로 취급하므로 (전역 음원 guild_id=NULL 중복 방지)
+    # COALESCE 식 인덱스로 유니크를 강제한다
+    await _db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sounds_unique ON sounds (bot_id, scope, COALESCE(guild_id, 0), keyword)"
+    )
 
 
 async def _copy_if_old_exists(old: str, new: str, cols: list[str]):
@@ -660,3 +673,131 @@ async def get_tts_char_usage(month: str | None = None, bot_id: int | None = None
         month = datetime.now(KST).strftime("%Y-%m")
     async with _db.execute("SELECT voice_type, char_count FROM tts_char_usage_v2 WHERE bot_id = ? AND month = ?", (_bot_id(bot_id), month)) as cursor:
         return {row[0]: row[1] async for row in cursor}
+
+
+# ───────────────────────── Sounds (사운드보드) ─────────────────────────
+
+_SOUND_COLS = "id, bot_id, scope, guild_id, keyword, filename, duration_seconds, original_filename, created_by, created_at, play_count"
+
+
+def _sound_row_to_dict(row) -> dict:
+    return {"id": row[0], "bot_id": row[1], "scope": row[2], "guild_id": row[3],
+            "keyword": row[4], "filename": row[5], "duration_seconds": row[6],
+            "original_filename": row[7], "created_by": row[8], "created_at": row[9],
+            "play_count": row[10] or 0}
+
+
+async def add_sound(scope: str, keyword: str, filename: str, duration_seconds: float, *,
+                    guild_id: int | None = None, original_filename: str | None = None,
+                    created_by: int | None = None, bot_id: int | None = None) -> dict | None:
+    if scope not in ("global", "guild") or (scope == "guild" and guild_id is None):
+        return None
+    bid = _bot_id(bot_id)
+    try:
+        cursor = await _db.execute(
+            """INSERT INTO sounds (bot_id, scope, guild_id, keyword, filename, duration_seconds, original_filename, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (bid, scope, guild_id if scope == "guild" else None, keyword, filename,
+             duration_seconds, original_filename, created_by),
+        )
+        await _db.commit()
+    except aiosqlite.IntegrityError:
+        await _db.rollback()
+        return None
+    return await get_sound_by_id(cursor.lastrowid)
+
+
+async def get_sound_by_id(sound_id: int) -> dict | None:
+    async with _db.execute(f"SELECT {_SOUND_COLS} FROM sounds WHERE id = ?", (int(sound_id),)) as cursor:
+        row = await cursor.fetchone()
+    return _sound_row_to_dict(row) if row else None
+
+
+async def resolve_sound(keyword: str, guild_id: int | None = None, bot_id: int | None = None) -> dict | None:
+    """길드 음원 우선, 없으면 전역 음원."""
+    bid = _bot_id(bot_id)
+    if guild_id is not None:
+        async with _db.execute(
+            f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ? AND keyword = ?",
+            (bid, guild_id, keyword),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row:
+            return _sound_row_to_dict(row)
+    async with _db.execute(
+        f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'global' AND keyword = ?",
+        (bid, keyword),
+    ) as cursor:
+        row = await cursor.fetchone()
+    return _sound_row_to_dict(row) if row else None
+
+
+async def get_global_sounds(bot_id: int | None = None) -> list[dict]:
+    async with _db.execute(
+        f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'global' ORDER BY created_at ASC, keyword ASC",
+        (_bot_id(bot_id),),
+    ) as cursor:
+        return [_sound_row_to_dict(row) async for row in cursor]
+
+
+async def get_guild_sounds(guild_id: int | None = None, bot_id: int | None = None) -> list[dict]:
+    """guild_id를 주면 해당 길드만, 없으면 모든 길드 음원 (대시보드용)."""
+    bid = _bot_id(bot_id)
+    if guild_id is None:
+        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'guild' ORDER BY guild_id ASC, created_at ASC, keyword ASC"
+        params: tuple = (bid,)
+    else:
+        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ? ORDER BY created_at ASC, keyword ASC"
+        params = (bid, guild_id)
+    async with _db.execute(sql, params) as cursor:
+        return [_sound_row_to_dict(row) async for row in cursor]
+
+
+async def get_sounds_for_guild(guild_id: int, bot_id: int | None = None) -> list[dict]:
+    """길드에서 사용 가능한 음원: 길드 음원 + 길드에 가려지지 않은 전역 음원."""
+    guild_sounds = await get_guild_sounds(guild_id, bot_id=bot_id)
+    guild_keywords = {s["keyword"] for s in guild_sounds}
+    global_sounds = [s for s in await get_global_sounds(bot_id=bot_id) if s["keyword"] not in guild_keywords]
+    return guild_sounds + global_sounds
+
+
+async def get_guild_sound_count(guild_id: int, bot_id: int | None = None) -> int:
+    async with _db.execute(
+        "SELECT COUNT(*) FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ?",
+        (_bot_id(bot_id), guild_id),
+    ) as cursor:
+        return (await cursor.fetchone())[0]
+
+
+async def remove_sound(scope: str, keyword: str, *, guild_id: int | None = None, bot_id: int | None = None) -> dict | None:
+    """삭제된 행을 반환한다 (디스크 파일 정리는 호출자 책임). 없으면 None."""
+    bid = _bot_id(bot_id)
+    if scope == "guild":
+        if guild_id is None:
+            return None
+        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'guild' AND guild_id = ? AND keyword = ?"
+        params: tuple = (bid, guild_id, keyword)
+    else:
+        sql = f"SELECT {_SOUND_COLS} FROM sounds WHERE bot_id = ? AND scope = 'global' AND keyword = ?"
+        params = (bid, keyword)
+    async with _db.execute(sql, params) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        return None
+    await _db.execute("DELETE FROM sounds WHERE id = ?", (row[0],))
+    await _db.commit()
+    return _sound_row_to_dict(row)
+
+
+async def remove_sound_by_id(sound_id: int) -> dict | None:
+    sound = await get_sound_by_id(sound_id)
+    if sound is None:
+        return None
+    await _db.execute("DELETE FROM sounds WHERE id = ?", (int(sound_id),))
+    await _db.commit()
+    return sound
+
+
+async def increment_sound_play_count(sound_id: int):
+    await _db.execute("UPDATE sounds SET play_count = play_count + 1 WHERE id = ?", (int(sound_id),))
+    await _db.commit()
