@@ -6,7 +6,8 @@ from datetime import datetime
 from quart import Response, current_app, jsonify, redirect, render_template, request, session, url_for
 
 import database
-from config import DASHBOARD_ADMIN_IDS
+import sound_storage
+from config import DASHBOARD_ADMIN_IDS, SOUND_MAX_KEYWORD_LENGTH, SOUND_MAX_PER_GUILD
 from database import KST
 from web.app import get_dashboard_owner_ids, is_dashboard_owner, login_required
 
@@ -38,7 +39,7 @@ def _format_relative(iso_str: str | None) -> str:
 
 
 def register_routes(app):
-    valid_sections = {"overview", "bots", "admins", "pronunciation", "audit"}
+    valid_sections = {"overview", "bots", "admins", "pronunciation", "audit", "sounds"}
     section_aliases = {"keywords": "pronunciation"}
 
     def pop_notice():
@@ -218,6 +219,11 @@ def register_routes(app):
 
         guild_name_map = {g["id"]: g["name"] for g in guilds}
 
+        global_sounds = await database.get_global_sounds(bot_id=selected_bot_id)
+        guild_sounds = await database.get_guild_sounds(bot_id=selected_bot_id)
+        for s in guild_sounds:
+            s["guild_name"] = guild_name_map.get(s["guild_id"], f"Unknown ({s['guild_id']})")
+
         # 통합 규칙 리스트 + 충돌 마킹
         global_keyword_set = {item["keyword"] for item in global_keyword_aliases}
         guild_keyword_set = {(it["guild_id"], it["keyword"]) for it in guild_keyword_aliases}
@@ -291,6 +297,8 @@ def register_routes(app):
             health=health,
             audit_entries=audit_entries,
             initial_guild_filter=initial_guild_filter,
+            global_sounds=global_sounds,
+            guild_sounds=guild_sounds,
         )
 
     @app.route("/servers/<int:guild_id>")
@@ -406,6 +414,77 @@ def register_routes(app):
             await manager.restart_bot(bot_id)
         set_notice(f"봇 {bot_id} 작업 `{action}` 요청 완료", "success")
         return redirect(url_for("index", section="bots"))
+
+    # ───────────────────────── Sounds (사운드보드) ─────────────────────────
+
+    def redirect_sounds():
+        return redirect(url_for("index", section="sounds"))
+
+    @app.route("/sounds/upload", methods=["POST"])
+    @login_required
+    async def upload_sound():
+        form = await request.form
+        bot_id = int(form.get("bot_id") or getattr(current_app.bot, "bot_id", 1))
+        scope = (form.get("scope") or "").strip()
+        keyword = (form.get("keyword") or "").strip()
+        raw_guild_id = (form.get("guild_id") or "").strip()
+
+        if scope not in ("global", "guild"):
+            set_notice("scope는 global 또는 guild여야 합니다.", "error")
+            return redirect_sounds()
+        if not keyword or len(keyword) > SOUND_MAX_KEYWORD_LENGTH:
+            set_notice(f"키워드는 1~{SOUND_MAX_KEYWORD_LENGTH}자여야 합니다.", "error")
+            return redirect_sounds()
+
+        guild_id = None
+        if scope == "guild":
+            if not raw_guild_id.isdigit():
+                set_notice("서버를 선택해야 합니다.", "error")
+                return redirect_sounds()
+            guild_id = int(raw_guild_id)
+            if await database.get_guild_sound_count(guild_id, bot_id=bot_id) >= SOUND_MAX_PER_GUILD:
+                set_notice(f"서버당 음원은 최대 {SOUND_MAX_PER_GUILD}개까지 등록할 수 있습니다.", "error")
+                return redirect_sounds()
+
+        files = await request.files
+        upload = files.get("file")
+        if upload is None or not upload.filename:
+            set_notice("음원 파일을 선택해주세요.", "error")
+            return redirect_sounds()
+
+        data = upload.read()
+        try:
+            filename, duration = await sound_storage.save_sound_file(data, bot_id=bot_id)
+        except sound_storage.SoundValidationError as e:
+            set_notice(str(e), "error")
+            return redirect_sounds()
+
+        try:
+            created = await database.add_sound(
+                scope, keyword, filename, duration,
+                guild_id=guild_id, original_filename=upload.filename,
+                created_by=_actor_id(), bot_id=bot_id,
+            )
+        except Exception:
+            sound_storage.delete_sound_file(filename, bot_id=bot_id)
+            raise
+        if created is None:
+            sound_storage.delete_sound_file(filename, bot_id=bot_id)
+            set_notice(f"이미 등록된 키워드: {keyword}", "error")
+            return redirect_sounds()
+        set_notice(f"음원 `{keyword}` 를 등록했습니다. ({duration:.1f}초)", "success")
+        return redirect_sounds()
+
+    @app.route("/sounds/<int:sound_id>/delete", methods=["POST"])
+    @login_required
+    async def delete_sound(sound_id: int):
+        removed = await database.remove_sound_by_id(sound_id)
+        if removed is None:
+            set_notice("삭제할 음원을 찾을 수 없습니다.", "error")
+            return redirect_sounds()
+        sound_storage.delete_sound_file(removed["filename"], bot_id=removed["bot_id"])
+        set_notice(f"음원 `{removed['keyword']}` 를 삭제했습니다.", "success")
+        return redirect_sounds()
 
     # ───────────────────────── Admins ─────────────────────────
 

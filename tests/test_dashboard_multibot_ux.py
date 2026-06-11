@@ -40,3 +40,15 @@ def test_pronunciation_js_sends_bot_id_with_rule_mutations():
     assert "const selectedBotId" in template
     assert "body.bot_id = selectedBotId" in template
     assert "bot_id: selectedBotId" in template
+
+
+def test_dashboard_supports_sounds_section():
+    routes = ROUTES.read_text(encoding="utf-8")
+    template = TEMPLATE.read_text(encoding="utf-8")
+    assert "sounds" in routes.split("valid_sections")[1].split("}")[0]
+    assert "get_global_sounds(bot_id=selected_bot_id)" in routes
+    assert "get_guild_sounds(bot_id=selected_bot_id)" in routes
+    assert '@app.route("/sounds/upload", methods=["POST"])' in routes
+    assert '@app.route("/sounds/<int:sound_id>/delete", methods=["POST"])' in routes
+    assert "section=sounds" in template
+    assert "/sounds/upload" in template
