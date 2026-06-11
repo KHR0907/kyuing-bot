@@ -35,7 +35,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.bot_id = database.current_bot_id()
 
-EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice"]
+EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice", "cogs.sounds"]
 
 
 async def refresh_dashboard_snapshot() -> int:
