@@ -99,3 +99,116 @@ async def test_play_count_increment_and_remove_by_id(db):
     removed = await db.remove_sound_by_id(created["id"])
     assert removed["keyword"] == "pc"
     assert await db.get_sound_by_id(created["id"]) is None
+
+
+# ───────────────────────── sound_storage ─────────────────────────
+
+import json
+from pathlib import Path
+
+
+def _load_sound_storage():
+    import sound_storage
+
+    return importlib.reload(sound_storage)
+
+
+def test_parse_probe_output_extracts_duration():
+    sound_storage = _load_sound_storage()
+    raw = json.dumps({"streams": [{"codec_type": "audio"}], "format": {"duration": "3.25"}})
+    assert sound_storage.parse_probe_output(raw) == 3.25
+
+
+def test_parse_probe_output_returns_none_when_invalid():
+    sound_storage = _load_sound_storage()
+    no_audio = json.dumps({"streams": [{"codec_type": "video"}], "format": {"duration": "3.0"}})
+    no_duration = json.dumps({"streams": [{"codec_type": "audio"}], "format": {}})
+    assert sound_storage.parse_probe_output(no_audio) is None
+    assert sound_storage.parse_probe_output(no_duration) is None
+    assert sound_storage.parse_probe_output("not-json") is None
+
+
+@pytest.mark.asyncio
+async def test_save_sound_file_rejects_oversize(monkeypatch, tmp_path):
+    sound_storage = _load_sound_storage()
+    monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+    monkeypatch.setattr(sound_storage, "SOUND_MAX_FILE_BYTES", 10)
+
+    with pytest.raises(sound_storage.SoundValidationError, match="너무 큽니다"):
+        await sound_storage.save_sound_file(b"x" * 11, bot_id=1)
+
+
+@pytest.mark.asyncio
+async def test_save_sound_file_rejects_long_audio(monkeypatch, tmp_path):
+    sound_storage = _load_sound_storage()
+    monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+
+    async def fake_run(*args):
+        payload = {"streams": [{"codec_type": "audio"}], "format": {"duration": "8.5"}}
+        return 0, json.dumps(payload).encode(), b""
+
+    monkeypatch.setattr(sound_storage, "_run", fake_run)
+
+    with pytest.raises(sound_storage.SoundValidationError, match="8초 이하"):
+        await sound_storage.save_sound_file(b"fake", bot_id=1)
+    assert not (tmp_path / "sounds").exists()  # 거부된 업로드는 흔적을 남기지 않음
+
+
+@pytest.mark.asyncio
+async def test_save_sound_file_rejects_no_audio_stream(monkeypatch, tmp_path):
+    sound_storage = _load_sound_storage()
+    monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+
+    async def fake_run(*args):
+        payload = {"streams": [{"codec_type": "video"}], "format": {"duration": "3.0"}}
+        return 0, json.dumps(payload).encode(), b""
+
+    monkeypatch.setattr(sound_storage, "_run", fake_run)
+
+    with pytest.raises(sound_storage.SoundValidationError, match="오디오 트랙"):
+        await sound_storage.save_sound_file(b"fake", bot_id=1)
+
+
+@pytest.mark.asyncio
+async def test_save_sound_file_converts_and_stores(monkeypatch, tmp_path):
+    sound_storage = _load_sound_storage()
+    monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+
+    async def fake_run(*args):
+        if args[0] == "ffprobe":
+            payload = {"streams": [{"codec_type": "audio"}], "format": {"duration": "4.2"}}
+            return 0, json.dumps(payload).encode(), b""
+        if args[0] == "ffmpeg":
+            Path(args[-1]).write_bytes(b"fake-ogg")
+            return 0, b"", b""
+        raise AssertionError(f"unexpected command: {args}")
+
+    monkeypatch.setattr(sound_storage, "_run", fake_run)
+
+    filename, duration = await sound_storage.save_sound_file(b"fake-mp4", bot_id=1)
+    assert duration == 4.2
+    assert filename.endswith(".ogg")
+    stored = sound_storage.sound_path(filename, bot_id=1)
+    assert stored.read_bytes() == b"fake-ogg"
+
+    sound_storage.delete_sound_file(filename, bot_id=1)
+    assert not stored.exists()
+    # 이미 없는 파일 삭제는 조용히 무시
+    sound_storage.delete_sound_file(filename, bot_id=1)
+
+
+@pytest.mark.asyncio
+async def test_save_sound_file_raises_on_ffmpeg_failure(monkeypatch, tmp_path):
+    sound_storage = _load_sound_storage()
+    monkeypatch.setattr(sound_storage, "SOUNDS_DIR", str(tmp_path / "sounds"))
+
+    async def fake_run(*args):
+        if args[0] == "ffprobe":
+            payload = {"streams": [{"codec_type": "audio"}], "format": {"duration": "2.0"}}
+            return 0, json.dumps(payload).encode(), b""
+        return 1, b"", b"conversion error"
+
+    monkeypatch.setattr(sound_storage, "_run", fake_run)
+
+    with pytest.raises(sound_storage.SoundValidationError, match="변환에 실패"):
+        await sound_storage.save_sound_file(b"fake", bot_id=1)
