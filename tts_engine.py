@@ -6,6 +6,7 @@ import discord
 from loguru import logger as log
 
 import database
+import music_handoff
 from tts_engines import get_engine
 
 # 서버별 TTS 큐 락
@@ -64,6 +65,24 @@ async def _ensure_voice_client(guild: discord.Guild, voice_channel: discord.Voic
     return vc
 
 
+async def _play_with_handoff(guild, voice_channel, base_play):
+    """음악 재생 중이면 핸드오프(suspend→base_play→resume), 아니면 base_play만.
+
+    base_play: 실제 FFmpeg 재생을 수행하는 async 콜러블 (인자 없음).
+    """
+    player = music_handoff.get_active_music_player(guild)
+    if player is None:
+        await base_play()
+        return
+
+    resume_track, resume_ms = await music_handoff.suspend_music(player)
+    try:
+        await base_play()
+    finally:
+        await music_handoff.resume_music(voice_channel, resume_track, resume_ms)
+        # resume_track/resume_ms 는 여기서 마지막 사용, 함수 종료로 휘발
+
+
 async def do_tts(
     text: str,
     voice_channel: discord.VoiceChannel,
@@ -97,16 +116,15 @@ async def do_tts(
                 total_steps=total_steps, bot_id=bot_id,
             )
 
-            vc = await _ensure_voice_client(guild, voice_channel)
+            async def _base_play():
+                vc = await _ensure_voice_client(guild, voice_channel)
+                if vc.is_playing():
+                    vc.stop()
+                vc.play(discord.FFmpegPCMAudio(tmp_path))
+                while vc.is_playing():
+                    await asyncio.sleep(0.5)
 
-            if vc.is_playing():
-                vc.stop()
-
-            vc.play(discord.FFmpegPCMAudio(tmp_path))
-
-            while vc.is_playing():
-                await asyncio.sleep(0.5)
-
+            await _play_with_handoff(guild, voice_channel, _base_play)
             return None
 
         except Exception as e:
@@ -126,21 +144,18 @@ async def play_sound(
 ) -> str | None:
     """사운드보드 음원 파일을 재생한다. TTS와 같은 길드 락을 공유해 순서를 보장한다."""
     async with _locks[guild.id]:
-        vc = None
         try:
-            vc = await _ensure_voice_client(guild, voice_channel)
-            if vc.is_playing():
-                vc.stop()
+            async def _base_play():
+                vc = await _ensure_voice_client(guild, voice_channel)
+                if vc.is_playing():
+                    vc.stop()
+                vc.play(discord.FFmpegPCMAudio(file_path))
+                while vc.is_playing():
+                    await asyncio.sleep(0.5)
+                if vc.is_playing():
+                    vc.stop()
 
-            vc.play(discord.FFmpegPCMAudio(file_path))
-
-            while vc.is_playing():
-                await asyncio.sleep(0.5)
-
+            await _play_with_handoff(guild, voice_channel, _base_play)
             return None
         except Exception as e:
             return f"사운드 재생 오류: {str(e)}"
-        finally:
-            # 예외/취소로 빠져나갈 때 FFmpeg 재생이 남지 않도록 정리
-            if vc is not None and vc.is_playing():
-                vc.stop()
