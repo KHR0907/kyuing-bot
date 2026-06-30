@@ -100,6 +100,37 @@ async def disconnect_if_voice_channel_empty(guild: discord.Guild):
 
 
 CUSTOM_EMOJI_RE = re.compile(r"<a?:[A-Za-z0-9_~]+:\d+>")
+URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+USER_MENTION_RE = re.compile(r"<@!?(\d+)>")
+ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
+CHANNEL_MENTION_RE = re.compile(r"<#(\d+)>")
+
+
+def _replace_mentions(text: str, message: discord.Message) -> str:
+    # 역할/채널 멘션을 먼저 치환 (<@&...>, <#...>가 사용자 멘션 패턴과 겹치지 않도록)
+    role_names = {role.id: role.name for role in message.role_mentions}
+
+    def role_repl(match: "re.Match[str]") -> str:
+        name = role_names.get(int(match.group(1)))
+        return f"{name} 역할을 언급했어요" if name else "역할을 언급했어요"
+
+    text = ROLE_MENTION_RE.sub(role_repl, text)
+
+    channel_names = {channel.id: channel.name for channel in message.channel_mentions}
+
+    def channel_repl(match: "re.Match[str]") -> str:
+        name = channel_names.get(int(match.group(1)))
+        return f"{name} 채널을 언급했어요" if name else "채널을 언급했어요"
+
+    text = CHANNEL_MENTION_RE.sub(channel_repl, text)
+
+    user_names = {user.id: (user.display_name or user.name) for user in message.mentions}
+
+    def user_repl(match: "re.Match[str]") -> str:
+        name = user_names.get(int(match.group(1)))
+        return f"{name}님을 언급했어요" if name else "누군가를 언급했어요"
+
+    return USER_MENTION_RE.sub(user_repl, text)
 
 
 def _describe_attachments(message: discord.Message) -> list[str]:
@@ -124,6 +155,8 @@ def build_tts_text(message: discord.Message) -> str:
 
     text = message.content.strip()
     if text:
+        text = URL_RE.sub("링크를 보냈어요", text)
+        text = _replace_mentions(text, message)
         stripped = CUSTOM_EMOJI_RE.sub("", text).strip()
         had_custom_emoji = stripped != text
         if stripped:
