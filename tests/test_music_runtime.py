@@ -39,3 +39,27 @@ async def test_connect_pool_returns_false_when_disabled(monkeypatch):
     importlib.reload(music_runtime)
     result = await music_runtime.connect_pool(object())
     assert result is False
+
+
+async def test_connect_pool_only_attempts_once(monkeypatch):
+    """on_ready가 여러 번 호출돼도 Pool.connect는 한 번만 시도한다."""
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setenv("MUSIC_ENABLED", "true")
+    import config
+    importlib.reload(config)
+    import music_runtime
+    importlib.reload(music_runtime)
+    if not music_runtime.WAVELINK_AVAILABLE:
+        pytest.skip("wavelink 미설치")
+
+    calls = {"n": 0}
+
+    async def fake_connect(*args, **kwargs):
+        calls["n"] += 1
+
+    monkeypatch.setattr(music_runtime.wavelink.Pool, "connect", fake_connect)
+
+    await music_runtime.connect_pool(object())
+    await music_runtime.connect_pool(object())
+    await music_runtime.connect_pool(object())
+    assert calls["n"] == 1

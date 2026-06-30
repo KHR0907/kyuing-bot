@@ -235,6 +235,9 @@ async def on_wavelink_node_ready(payload):
 @bot.event
 async def on_ready():
     log.info("봇 온라인: {} (ID: {})", bot.user, bot.user.id)
+    # 로그인 완료 후(bot.user 확정) Lavalink 연결 — 로그인 전 호출 시
+    # wavelink가 user-id 없이 핸드셰이크해 빈 에러로 무한 재시도함.
+    await music_runtime.connect_pool(bot)
     await refresh_dashboard_owner_ids()
     active_channel_count = await refresh_dashboard_snapshot()
     configured_guild_count = await database.get_all_tts_channel_count(bot_id=bot.bot_id)
@@ -291,8 +294,6 @@ async def main(*, bot_id: int | None = None, run_web: bool = True):
 
     for ext in EXTENSIONS:
         await bot.load_extension(ext)
-
-    await music_runtime.connect_pool(bot)
 
     web_task = None
     flush_task = None
