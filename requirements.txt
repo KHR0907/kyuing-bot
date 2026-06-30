@@ -10,3 +10,4 @@ quart
 aiohttp
 pytest
 pytest-asyncio
+wavelink>=3

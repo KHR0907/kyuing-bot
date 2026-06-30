@@ -7,8 +7,24 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    depends_on:
+      - lavalink
     ports:
       - "${WEB_PORT:-5001}:${WEB_PORT:-5001}"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4-alpine
+    container_name: kyuing-lavalink
+    restart: unless-stopped
+    environment:
+      - _JAVA_OPTIONS=-Xmx512M
+      - SERVER_PORT=2333
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_PASSWORD:-youshallnotpass}
+    volumes:
+      - ./application.yml:/opt/Lavalink/application.yml
+      - ./lavalink-plugins:/opt/Lavalink/plugins
+    expose:
+      - "2333"

@@ -1,0 +1,25 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.0"
+      repository: "https://maven.lavalink.dev/releases"
+  server:
+    password: "youshallnotpass"
+    sources:
+      # youtube-source 플러그인이 대체하므로 내장 youtube는 끔
+      youtube: false
+      bandcamp: false
+      soundcloud: false
+      twitch: false
+      vimeo: false
+      http: true
+      local: false
+plugins:
+  youtube:
+    enabled: true
+logging:
+  level:
+    root: INFO
+    lavalink: INFO

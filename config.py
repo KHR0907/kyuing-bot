@@ -103,3 +103,10 @@ SOUND_MAX_FILE_BYTES = 20 * 1024 * 1024
 SOUND_MAX_KEYWORD_LENGTH = 50
 SOUND_MAX_PER_GUILD = 100
 SOUNDS_DIR = os.getenv("SOUNDS_DIR", "data/sounds")
+
+# Lavalink / 음악
+LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
+LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", "2333"))
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "youshallnotpass")
+LAVALINK_URI = f"http://{LAVALINK_HOST}:{LAVALINK_PORT}"
+MUSIC_ENABLED = _env_flag("MUSIC_ENABLED", True)
