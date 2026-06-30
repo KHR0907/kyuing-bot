@@ -45,10 +45,17 @@ class MusicCog(commands.Cog):
         user_voice = interaction.user.voice.channel if getattr(interaction.user, "voice", None) else None
         player = self._player(interaction)
         if player is None:
-            if user_voice is None:
+            # 봇이 이미 음성에 연결돼 있으나 wavelink.Player가 아니면(TTS 등)
+            # 그 연결을 정리하고 wavelink로 다시 연결한다. 그대로 두면
+            # connect()가 "Already connected to a voice channel."로 실패한다.
+            existing_vc = interaction.guild.voice_client
+            target_voice = user_voice or (existing_vc.channel if existing_vc else None)
+            if target_voice is None:
                 await interaction.response.send_message("❌ 먼저 음성 채널에 들어와주세요!", ephemeral=True)
                 return
-            player = await user_voice.connect(cls=wavelink.Player)
+            if existing_vc is not None:
+                await existing_vc.disconnect(force=True)
+            player = await target_voice.connect(cls=wavelink.Player)
             player.autoplay = wavelink.AutoPlayMode.partial
         if not hasattr(player, "home"):
             player.home = interaction.channel
