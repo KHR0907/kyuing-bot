@@ -25,6 +25,7 @@ configure_logging()
 
 import database
 import tts_engine
+import music_runtime
 from web.app import create_app
 from bot_process_manager import BotProcessManager
 
@@ -220,6 +221,12 @@ async def on_voice_state_update(member, before, after):
 
 
 @bot.event
+async def on_wavelink_node_ready(payload):
+    music_runtime.mark_pool_connected(True)
+    log.info("Lavalink 노드 준비 완료: {}", getattr(payload, "node", None))
+
+
+@bot.event
 async def on_ready():
     log.info("봇 온라인: {} (ID: {})", bot.user, bot.user.id)
     await refresh_dashboard_owner_ids()
@@ -278,6 +285,8 @@ async def main(*, bot_id: int | None = None, run_web: bool = True):
 
     for ext in EXTENSIONS:
         await bot.load_extension(ext)
+
+    await music_runtime.connect_pool(bot)
 
     web_task = None
     flush_task = None
