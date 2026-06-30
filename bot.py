@@ -36,7 +36,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.bot_id = database.current_bot_id()
 
-EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice", "cogs.sounds", "cogs.music"]
+EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice", "cogs.sounds", "cogs.music", "cogs.help"]
 
 
 async def refresh_dashboard_snapshot() -> int:
@@ -91,6 +91,12 @@ async def disconnect_if_voice_channel_empty(guild: discord.Guild):
 
     channel_name = vc.channel.name
     channel_id = vc.channel.id
+    try:
+        import wavelink
+        if isinstance(vc, wavelink.Player):
+            vc.queue.clear()
+    except Exception:
+        pass
     await vc.disconnect()
     log.info(
         "음성 채널 자동 퇴장 guild_id={} channel_id={} channel_name={}",

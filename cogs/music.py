@@ -145,6 +145,101 @@ class MusicCog(commands.Cog):
             embed.set_thumbnail(url=t.artwork)
         await interaction.response.send_message(embed=embed)
 
+    @music_group.command(name="volume", description="볼륨 조절 (0~100)")
+    @app_commands.describe(value="0~100")
+    async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None:
+            await interaction.response.send_message("❌ 재생 중이 아니에요.", ephemeral=True)
+            return
+        await player.set_volume(value)
+        await interaction.response.send_message(f"🔊 볼륨 {value}")
+
+    @music_group.command(name="remove", description="큐에서 특정 번호의 곡을 제거")
+    @app_commands.describe(index="큐 번호 (/music queue 기준)")
+    async def remove(self, interaction: discord.Interaction, index: app_commands.Range[int, 1, 1000]):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None or len(player.queue) < index:
+            await interaction.response.send_message("❌ 그 번호의 곡이 없어요.", ephemeral=True)
+            return
+        removed = player.queue[index - 1]
+        del player.queue[index - 1]
+        await interaction.response.send_message(f"🗑️ 제거: **{removed.title}**")
+
+    @music_group.command(name="clear", description="큐를 비웁니다 (현재 곡 유지)")
+    async def clear(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None:
+            await interaction.response.send_message("❌ 재생 중이 아니에요.", ephemeral=True)
+            return
+        player.queue.clear()
+        await interaction.response.send_message("🧹 큐를 비웠어요.")
+
+    @music_group.command(name="loop", description="반복 모드 설정")
+    @app_commands.describe(mode="off / track / queue")
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="off", value="off"),
+        app_commands.Choice(name="track", value="track"),
+        app_commands.Choice(name="queue", value="queue"),
+    ])
+    async def loop(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None:
+            await interaction.response.send_message("❌ 재생 중이 아니에요.", ephemeral=True)
+            return
+        modes = {
+            "off": wavelink.QueueMode.normal,
+            "track": wavelink.QueueMode.loop,
+            "queue": wavelink.QueueMode.loop_all,
+        }
+        player.queue.mode = modes[mode.value]
+        await interaction.response.send_message(f"🔁 반복: {mode.value}")
+
+    @music_group.command(name="shuffle", description="큐를 섞습니다")
+    async def shuffle(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None or len(player.queue) < 2:
+            await interaction.response.send_message("❌ 섞을 곡이 부족해요.", ephemeral=True)
+            return
+        player.queue.shuffle()
+        await interaction.response.send_message("🔀 큐를 섞었어요.")
+
+    @music_group.command(name="seek", description="재생 위치 이동 (초)")
+    @app_commands.describe(seconds="이동할 위치(초)")
+    async def seek(self, interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 86400]):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None or not player.playing:
+            await interaction.response.send_message("❌ 재생 중인 곡이 없어요.", ephemeral=True)
+            return
+        await player.seek(seconds * 1000)
+        await interaction.response.send_message(f"⏩ {seconds}초로 이동")
+
+    @music_group.command(name="speed", description="배속 (0.5~2.0)")
+    @app_commands.describe(rate="0.5 ~ 2.0")
+    async def speed(self, interaction: discord.Interaction, rate: app_commands.Range[float, 0.5, 2.0]):
+        if not await self._guard(interaction):
+            return
+        player = self._player(interaction)
+        if player is None or not player.playing:
+            await interaction.response.send_message("❌ 재생 중인 곡이 없어요.", ephemeral=True)
+            return
+        filters = player.filters
+        filters.timescale.set(speed=rate)
+        await player.set_filters(filters)
+        await interaction.response.send_message(f"⏱️ 배속 {rate}x")
+
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload):
         player = payload.player
