@@ -25,7 +25,6 @@ configure_logging()
 
 import database
 import tts_engine
-import music_runtime
 from web.app import create_app
 from bot_process_manager import BotProcessManager
 
@@ -36,7 +35,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.bot_id = database.current_bot_id()
 
-EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice", "cogs.sounds", "cogs.music", "cogs.help"]
+EXTENSIONS = ["cogs.tts", "cogs.channels", "cogs.voice", "cogs.sounds"]
 
 
 async def refresh_dashboard_snapshot() -> int:
@@ -91,12 +90,6 @@ async def disconnect_if_voice_channel_empty(guild: discord.Guild):
 
     channel_name = vc.channel.name
     channel_id = vc.channel.id
-    try:
-        import wavelink
-        if isinstance(vc, wavelink.Player):
-            vc.queue.clear()
-    except Exception:
-        pass
     await vc.disconnect()
     log.info(
         "음성 채널 자동 퇴장 guild_id={} channel_id={} channel_name={}",
@@ -227,17 +220,8 @@ async def on_voice_state_update(member, before, after):
 
 
 @bot.event
-async def on_wavelink_node_ready(payload):
-    music_runtime.mark_pool_connected(True)
-    log.info("Lavalink 노드 준비 완료: {}", getattr(payload, "node", None))
-
-
-@bot.event
 async def on_ready():
     log.info("봇 온라인: {} (ID: {})", bot.user, bot.user.id)
-    # 로그인 완료 후(bot.user 확정) Lavalink 연결 — 로그인 전 호출 시
-    # wavelink가 user-id 없이 핸드셰이크해 빈 에러로 무한 재시도함.
-    await music_runtime.connect_pool(bot)
     await refresh_dashboard_owner_ids()
     active_channel_count = await refresh_dashboard_snapshot()
     configured_guild_count = await database.get_all_tts_channel_count(bot_id=bot.bot_id)

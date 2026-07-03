@@ -62,35 +62,6 @@ Bot tokens are **not** passed as command-line arguments. Workers receive only `-
 - `/sound remove`: delete a sound registered in the current server
 - `/sound list`: list available sounds (server + global)
 - `/play`: play a registered sound in your voice channel
-- `/help`: show a categorized guide to all commands
-
-## Music (Lavalink)
-
-The bot can stream YouTube audio via a Lavalink node. Music shares the voice
-connection with TTS: when a TTS message arrives during playback, the music is
-paused and resumed automatically (it resumes ~0.2s earlier as an airbag).
-
-Commands (all under the `/music` group):
-
-- `/music play <query|url>`: search YouTube and queue/play
-- `/music skip` / `/music stop` / `/music pause` / `/music resume`
-- `/music queue` / `/music nowplaying`
-- `/music volume <0-100>` / `/music seek <seconds>` / `/music speed <0.5-2.0>`
-- `/music remove <index>` / `/music clear` / `/music loop <off|track|queue>` / `/music shuffle`
-
-Use `/help` for a categorized command guide.
-
-### Running Lavalink
-
-`docker compose up -d` starts both `app` and `lavalink`. In production the bot
-and Lavalink run inside one docker compose on the same host, and the bot reaches
-Lavalink by the compose service name `lavalink` (the default `LAVALINK_HOST`).
-Only when you run the bot outside the container (local development) do you need
-to override `LAVALINK_HOST=localhost`.
-
-Configure via env: `LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_PASSWORD`,
-`MUSIC_ENABLED`. Lavalink runs with `-Xmx512M`. Set `MUSIC_ENABLED=false` to
-disable music without removing the service.
 
 ## System requirements
 

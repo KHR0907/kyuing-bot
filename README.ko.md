@@ -62,34 +62,6 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 - `/sound remove`: 현재 서버에 등록된 음원 삭제
 - `/sound list`: 사용 가능한 음원 목록 (서버 + 전역)
 - `/play`: 등록된 음원을 음성 채널에서 재생
-- `/help`: 전체 명령어를 카테고리별로 안내
-
-## 음악 (Lavalink)
-
-Lavalink 노드를 통해 YouTube 음원을 재생합니다. 음악은 TTS와 음성 연결을
-공유하며, 재생 중 TTS 메시지가 오면 음악을 자동으로 일시정지했다가 재개합니다
-(에어백으로 약 0.2초 앞에서 재개).
-
-명령어 (모두 `/music` 그룹 하위):
-
-- `/music play <검색어|URL>`: YouTube 검색 후 큐 추가/재생
-- `/music skip` / `/music stop` / `/music pause` / `/music resume`
-- `/music queue` / `/music nowplaying`
-- `/music volume <0~100>` / `/music seek <초>` / `/music speed <0.5~2.0>`
-- `/music remove <번호>` / `/music clear` / `/music loop <off|track|queue>` / `/music shuffle`
-
-`/help` 로 카테고리별 명령어 가이드를 볼 수 있습니다.
-
-### Lavalink 실행
-
-`docker compose up -d` 로 `app` 과 `lavalink` 가 함께 뜹니다. 실제 운영에서는
-봇과 Lavalink가 하나의 docker compose로 같은 서버에서 동작하며, 컨테이너 간에는
-compose 서비스명 `lavalink`(기본 `LAVALINK_HOST`)로 통신합니다. 봇을 컨테이너
-밖에서 직접 실행하는 로컬 개발 시에만 `LAVALINK_HOST=localhost` 로 덮으면 됩니다.
-
-환경변수: `LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_PASSWORD`, `MUSIC_ENABLED`.
-Lavalink 는 `-Xmx512M` 로 동작합니다. `MUSIC_ENABLED=false` 로 서비스를 지우지
-않고 음악만 끌 수 있습니다.
 
 ## 시스템 요구사항
 
