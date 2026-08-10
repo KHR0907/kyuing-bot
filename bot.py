@@ -25,8 +25,11 @@ configure_logging()
 
 import database
 import tts_engine
+from audio_scheduler import AudioCooldown, AudioQueueFull, audio_scheduler
+from config import TTS_REQUIRE_VOICE_MEMBERSHIP, TTS_USER_COOLDOWN_SECONDS
 from web.app import create_app
 from bot_process_manager import BotProcessManager
+from worker_lock import WorkerAlreadyRunning, WorkerFileLock
 
 # ── 봇 설정 ──
 intents = discord.Intents.default()
@@ -43,6 +46,33 @@ async def refresh_dashboard_snapshot() -> int:
     await database.record_daily_snapshot(len(bot.guilds), active_channel_count, bot_id=bot.bot_id)
     await database.update_bot_runtime_status(bot.bot_id, "running", pid=os.getpid(), guild_count=len(bot.guilds))
     return active_channel_count
+
+
+async def refresh_guild_snapshots() -> None:
+    snapshots = []
+    for guild in bot.guilds:
+        voice_client = guild.voice_client
+        voice_channel = voice_client.channel if voice_client and voice_client.channel else None
+        snapshots.append({
+            "id": guild.id,
+            "name": guild.name,
+            "icon_url": guild.icon.url if guild.icon else "",
+            "member_count": guild.member_count or 0,
+            "voice_channel_id": voice_channel.id if voice_channel else None,
+            "voice_channel_name": voice_channel.name if voice_channel else None,
+        })
+    await database.sync_bot_guild_snapshots(bot.bot_id, snapshots)
+
+
+async def guild_snapshot_loop(interval_seconds: float = 30.0):
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            await refresh_guild_snapshots()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("서버 스냅샷 갱신 실패: {}", exc)
 
 
 async def keyword_hits_flush_loop(interval_seconds: int = 60):
@@ -62,6 +92,27 @@ async def keyword_hits_flush_loop(interval_seconds: int = 60):
             raise
         except Exception as e:
             log.warning("키워드 hit flush 실패 (다음 주기에 재시도): {}", e)
+
+
+async def config_cache_refresh_loop(interval_seconds: float = 2.0):
+    """Pick up dashboard changes committed by another bot/dashboard process."""
+    revision = await database.get_config_revision(bot.bot_id)
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            new_revision = await database.refresh_cache_if_changed(revision, bot_id=bot.bot_id)
+            if new_revision != revision:
+                log.info(
+                    "설정 캐시 갱신 bot_id={} revision={}→{}",
+                    bot.bot_id,
+                    revision,
+                    new_revision,
+                )
+                revision = new_revision
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("설정 캐시 확인 실패 (다음 주기에 재시도): {}", exc)
 
 
 async def refresh_dashboard_owner_ids():
@@ -185,19 +236,39 @@ async def on_message(message):
         bot_voice_client = message.guild.voice_client
         bot_voice_channel = bot_voice_client.channel if bot_voice_client else None
 
-        target_channel = user_voice_channel or bot_voice_channel
+        if bot_voice_channel is not None:
+            if TTS_REQUIRE_VOICE_MEMBERSHIP and user_voice_channel != bot_voice_channel:
+                return
+            # Chat messages must never drag an already connected bot to another room.
+            target_channel = bot_voice_channel
+        else:
+            target_channel = user_voice_channel
         if target_channel is None:
             await message.reply("먼저 음성 채널에 접속해주세요!")
             return
 
-        await database.increment_daily_tts_requests(bot_id=bot.bot_id)
-        error = await tts_engine.do_tts(
-            text=text,
-            voice_channel=target_channel,
-            guild=message.guild,
-            user_id=message.author.id,
-            bot_id=bot.bot_id,
-        )
+        async def run_tts_job():
+            await database.increment_daily_tts_requests(bot_id=bot.bot_id)
+            return await tts_engine.do_tts(
+                text=text,
+                voice_channel=target_channel,
+                guild=message.guild,
+                user_id=message.author.id,
+                bot_id=bot.bot_id,
+            )
+
+        try:
+            error = await audio_scheduler.run(
+                guild_id=message.guild.id,
+                user_id=message.author.id,
+                runner=run_tts_job,
+                cooldown_seconds=TTS_USER_COOLDOWN_SECONDS,
+            )
+        except AudioCooldown:
+            return
+        except AudioQueueFull:
+            await message.reply("음성 대기열이 가득 찼습니다. 잠시 후 다시 시도해주세요.")
+            return
         if error:
             await message.reply(error)
 
@@ -224,6 +295,7 @@ async def on_ready():
     log.info("봇 온라인: {} (ID: {})", bot.user, bot.user.id)
     await refresh_dashboard_owner_ids()
     active_channel_count = await refresh_dashboard_snapshot()
+    await refresh_guild_snapshots()
     configured_guild_count = await database.get_all_tts_channel_count(bot_id=bot.bot_id)
     log.info("서버 {}개", len(bot.guilds))
     log.info("활성 TTS 채널 {}개", active_channel_count)
@@ -239,12 +311,14 @@ async def on_ready():
 async def on_guild_join(guild):
     log.info("서버 참가: {} ({})", guild.name, guild.id)
     await refresh_dashboard_snapshot()
+    await refresh_guild_snapshots()
 
 
 @bot.event
 async def on_guild_remove(guild):
     log.info("서버 이탈: {} ({})", guild.name, guild.id)
     await refresh_dashboard_snapshot()
+    await refresh_guild_snapshots()
 
 
 @bot.tree.error
@@ -264,6 +338,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 
 async def main(*, bot_id: int | None = None, run_web: bool = True):
+    config.validate_runtime_config()
     if bot_id is not None:
         database.set_current_bot_id(bot_id)
         bot.bot_id = int(bot_id)
@@ -281,12 +356,16 @@ async def main(*, bot_id: int | None = None, run_web: bool = True):
 
     web_task = None
     flush_task = None
+    cache_refresh_task = None
+    guild_snapshot_task = None
 
     try:
         async with bot:
             if run_web:
                 quart_app = create_app(bot)
-                quart_app.bot_process_manager = BotProcessManager()
+                # The primary bot lives in this process. The worker manager must never
+                # start/stop it, otherwise the same Discord token can run twice.
+                quart_app.bot_process_manager = BotProcessManager(protected_bot_ids={bot.bot_id})
                 await quart_app.bot_process_manager.start_enabled_bots(exclude={bot.bot_id})
                 web_task = asyncio.create_task(
                     quart_app.run_task(host="0.0.0.0", port=config.WEB_PORT),
@@ -296,9 +375,25 @@ async def main(*, bot_id: int | None = None, run_web: bool = True):
                 keyword_hits_flush_loop(),
                 name="keyword-hits-flush",
             )
+            cache_refresh_task = asyncio.create_task(
+                config_cache_refresh_loop(),
+                name="config-cache-refresh",
+            )
+            guild_snapshot_task = asyncio.create_task(
+                guild_snapshot_loop(),
+                name="guild-snapshot-refresh",
+            )
             token = await database.get_bot_token(bot.bot_id) or config.DISCORD_TOKEN
             await bot.start(token)
     finally:
+        if guild_snapshot_task is not None:
+            guild_snapshot_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await guild_snapshot_task
+        if cache_refresh_task is not None:
+            cache_refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cache_refresh_task
         if flush_task is not None:
             flush_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -343,7 +438,17 @@ if __name__ == "__main__":
     args = parse_args()
     if not args.worker and not args.no_kill_existing:
         _kill_existing_bots()
+    worker_lock = None
     try:
+        if args.worker:
+            worker_lock = WorkerFileLock(args.bot_id)
+            worker_lock.acquire()
         asyncio.run(main(bot_id=args.bot_id, run_web=not args.worker))
+    except WorkerAlreadyRunning as exc:
+        log.error(str(exc))
+        raise SystemExit(3) from exc
     except KeyboardInterrupt:
         log.info("종료 신호 수신")
+    finally:
+        if worker_lock is not None:
+            worker_lock.release()

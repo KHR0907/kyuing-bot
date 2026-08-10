@@ -6,6 +6,7 @@ import discord
 from loguru import logger as log
 
 import database
+from config import TTS_SYNTHESIS_TIMEOUT_SECONDS, VOICE_CONNECT_TIMEOUT_SECONDS
 from tts_engines import get_engine
 
 # 서버별 TTS 큐 락
@@ -55,12 +56,12 @@ async def _ensure_voice_client(guild: discord.Guild, voice_channel: discord.Voic
     if vc is None or not vc.is_connected():
         if vc is not None:
             try:
-                await vc.disconnect(force=True)
+                await asyncio.wait_for(vc.disconnect(force=True), timeout=VOICE_CONNECT_TIMEOUT_SECONDS)
             except Exception:
                 pass
-        vc = await voice_channel.connect()
+        vc = await asyncio.wait_for(voice_channel.connect(), timeout=VOICE_CONNECT_TIMEOUT_SECONDS)
     elif vc.channel != voice_channel:
-        await vc.move_to(voice_channel)
+        await asyncio.wait_for(vc.move_to(voice_channel), timeout=VOICE_CONNECT_TIMEOUT_SECONDS)
     return vc
 
 
@@ -92,9 +93,12 @@ async def do_tts(
     async with _locks[guild.id]:
         tmp_path = None
         try:
-            tmp_path = await engine.synthesize(
-                text, voice=voice, speed=speed, lang=lang,
-                total_steps=total_steps, bot_id=bot_id,
+            tmp_path = await asyncio.wait_for(
+                engine.synthesize(
+                    text, voice=voice, speed=speed, lang=lang,
+                    total_steps=total_steps, bot_id=bot_id,
+                ),
+                timeout=TTS_SYNTHESIS_TIMEOUT_SECONDS,
             )
 
             vc = await _ensure_voice_client(guild, voice_channel)

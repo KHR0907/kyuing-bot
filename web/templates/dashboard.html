@@ -399,6 +399,7 @@
                             <div class="flex items-center gap-2 text-sm font-semibold">
                                 {{ item.name }}
                                 <span class="badge {% if item.status == 'running' %}bg-mint/10 text-mint{% elif item.status == 'error' %}bg-coral/10 text-coral{% else %}bg-white/[0.06] text-white/40{% endif %}">{{ item.status }}</span>
+                                {% if item.desired_state == 'stopped' and item.enabled %}<span class="badge bg-white/[0.06] text-white/40">수동 정지</span>{% endif %}
                                 {% if not item.enabled %}<span class="badge bg-sun/10 text-sun">disabled</span>{% endif %}
                             </div>
                             <div class="mt-1 font-mono text-[11px] text-white/25">bot_id={{ item.id }} · discord={{ item.discord_username or 'unknown' }} · pid={{ item.pid or '-' }}</div>
@@ -406,13 +407,17 @@
                             {% if item.last_error %}<div class="mt-1 text-xs text-coral">{{ item.last_error }}</div>{% endif %}
                         </div>
                         <div class="flex flex-wrap gap-2">
-                            <form method="post" action="/bots/{{ item.id }}/start"><button class="btn-secondary" type="submit">Start</button></form>
-                            <form method="post" action="/bots/{{ item.id }}/restart"><button class="btn-secondary" type="submit">Restart</button></form>
-                            <form method="post" action="/bots/{{ item.id }}/stop"><button class="btn-secondary" type="submit">Stop</button></form>
-                            {% if item.enabled %}
-                            <form method="post" action="/bots/{{ item.id }}/disable"><button class="btn-danger" type="submit">Disable</button></form>
+                            {% if item.id in protected_bot_ids %}
+                            <span class="badge bg-accent/10 text-accent-light">메인 프로세스에서 관리</span>
                             {% else %}
-                            <form method="post" action="/bots/{{ item.id }}/enable"><button class="btn-secondary" type="submit">Enable</button></form>
+                            <form method="post" action="/bots/{{ item.id }}/start"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-secondary" type="submit">Start</button></form>
+                            <form method="post" action="/bots/{{ item.id }}/restart"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-secondary" type="submit">Restart</button></form>
+                            <form method="post" action="/bots/{{ item.id }}/stop"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-secondary" type="submit">Stop</button></form>
+                            {% if item.enabled %}
+                            <form method="post" action="/bots/{{ item.id }}/disable"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-danger" type="submit">Disable</button></form>
+                            {% else %}
+                            <form method="post" action="/bots/{{ item.id }}/enable"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-secondary" type="submit">Enable</button></form>
+                            {% endif %}
                             {% endif %}
                         </div>
                     </div>
@@ -426,6 +431,7 @@
                 <h2 class="text-[15px] font-semibold">봇 추가하기</h2>
                 <p class="mt-1 text-xs text-white/30">Discord Developer Portal에서 발급한 Bot Token을 입력합니다. 토큰은 다시 표시하지 않습니다.</p>
                 <form class="mt-5 space-y-4" method="post" action="/bots">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div>
                         <label class="mb-2 block text-xs font-medium text-white/40">표시 이름</label>
                         <input class="input-field" name="name" placeholder="예: KYUING 테스트 봇">
@@ -472,6 +478,7 @@
                         </div>
                         {% if admin.removable %}
                         <form method="post" action="/admins/{{ admin.user_id }}/delete">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn-danger">
                                 <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 삭제
@@ -491,6 +498,7 @@
                     <h2 class="text-[15px] font-semibold">관리자 추가</h2>
                 </div>
                 <form method="post" action="/admins" class="space-y-4 p-6">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <label class="block">
                         <span class="mb-2 block text-xs font-medium text-white/40">Discord 사용자 ID</span>
                         <input type="text" name="user_id" inputmode="numeric" pattern="[0-9]+" placeholder="123456789012345678" class="input-field font-mono" required>
@@ -557,6 +565,7 @@
                             CSV 내보내기
                         </a>
                         <form method="post" action="/pronunciation/import?bot_id={{ selected_bot_id }}" enctype="multipart/form-data" class="block">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="bot_id" value="{{ selected_bot_id }}">
                             <label class="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-[13px] text-white/70 transition hover:bg-white/[0.05]">
                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -825,6 +834,7 @@
                             <td class="py-2 pr-4">{{ s.created_label }}</td>
                             <td class="py-2 text-right">
                                 <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
                                 </form>
                             </td>
@@ -840,6 +850,7 @@
                             <td class="py-2 pr-4">{{ s.created_label }}</td>
                             <td class="py-2 text-right">
                                 <form method="post" action="/sounds/{{ s.id }}/delete" data-keyword="{{ s.keyword }}" onsubmit="return confirm('음원 ' + this.dataset.keyword + ' 을(를) 삭제할까요?');">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="text-coral/80 hover:text-coral">삭제</button>
                                 </form>
                             </td>
@@ -855,6 +866,7 @@
                 <h2 class="text-sm font-semibold text-white/80">음원 업로드</h2>
                 <p class="mt-1 text-xs text-white/40">8초 이하 · 최대 20MB · mp4/mp3/wav/ogg/webm 등</p>
                 <form method="post" action="/sounds/upload" enctype="multipart/form-data" class="mt-4 grid gap-3">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="bot_id" value="{{ selected_bot_id }}">
                     <select name="scope" class="input-field">
                         <option value="global">전역 (모든 서버)</option>
@@ -946,6 +958,7 @@
 
 {% if active_section == 'pronunciation' %}
 <script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 function pronunciationApp() {
     const initialRules = JSON.parse(document.getElementById('pronunciation-data').textContent || '[]');
     const guilds = JSON.parse(document.getElementById('pronunciation-guilds').textContent || '[]');
@@ -1002,7 +1015,7 @@ function pronunciationApp() {
             body.bot_id = selectedBotId;
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'PATCH',
-                headers: {'Content-Type': 'application/json'},
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
                 body: JSON.stringify(body),
             });
             const data = await res.json();
@@ -1026,7 +1039,7 @@ function pronunciationApp() {
             const body = { scope: rule.scope, guild_id: rule.guild_id, keyword: rule.keyword, bot_id: selectedBotId };
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'DELETE',
-                headers: {'Content-Type': 'application/json'},
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
                 body: JSON.stringify(body),
             });
             const data = await res.json();
@@ -1062,7 +1075,7 @@ function pronunciationApp() {
             };
             const res = await fetch('/api/pronunciation/rules', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
                 body: JSON.stringify(body),
             });
             const data = await res.json();

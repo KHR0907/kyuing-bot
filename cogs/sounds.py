@@ -6,6 +6,7 @@ from loguru import logger as log
 import database
 import sound_storage
 import tts_engine
+from audio_scheduler import AudioCooldown, AudioQueueFull, audio_scheduler
 from config import SOUND_MAX_FILE_BYTES, SOUND_MAX_KEYWORD_LENGTH, SOUND_MAX_PER_GUILD
 
 
@@ -31,6 +32,7 @@ class SoundCog(commands.Cog):
         ][:25]
 
     @sound_group.command(name="add", description="키워드에 음원을 등록합니다 (8초 이하)")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(keyword="재생에 사용할 키워드", file="8초 이하의 오디오/비디오 파일 (mp4, mp3 등)")
     async def cmd_sound_add(self, interaction: discord.Interaction, keyword: str, file: discord.Attachment):
         if interaction.guild is None:
@@ -86,6 +88,7 @@ class SoundCog(commands.Cog):
         )
 
     @sound_group.command(name="remove", description="이 서버에 등록된 음원을 삭제합니다")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(keyword="삭제할 키워드")
     async def cmd_sound_remove(self, interaction: discord.Interaction, keyword: str):
         if interaction.guild is None:
@@ -173,7 +176,19 @@ class SoundCog(commands.Cog):
             return
 
         await interaction.response.defer()
-        error = await tts_engine.play_sound(str(path), target_channel, interaction.guild)
+        try:
+            error = await audio_scheduler.run(
+                guild_id=interaction.guild.id,
+                user_id=interaction.user.id,
+                runner=lambda: tts_engine.play_sound(str(path), target_channel, interaction.guild),
+                cooldown_seconds=1.0,
+            )
+        except AudioCooldown:
+            await interaction.followup.send("❌ 너무 빠르게 요청했습니다. 잠시 후 다시 시도해주세요.")
+            return
+        except AudioQueueFull:
+            await interaction.followup.send("❌ 음성 대기열이 가득 찼습니다. 잠시 후 다시 시도해주세요.")
+            return
         if error:
             await interaction.followup.send(f"❌ {error}")
             return

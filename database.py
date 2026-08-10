@@ -28,6 +28,10 @@ def current_bot_id() -> int:
     return CURRENT_BOT_ID
 
 
+def is_ready() -> bool:
+    return _db is not None
+
+
 def _bot_id(bot_id: int | None = None) -> int:
     return int(bot_id if bot_id is not None else CURRENT_BOT_ID)
 
@@ -57,6 +61,7 @@ async def _create_multibot_tables():
             discord_bot_user_id INTEGER UNIQUE,
             discord_username TEXT,
             enabled INTEGER DEFAULT 1,
+            desired_state TEXT NOT NULL DEFAULT 'running',
             status TEXT DEFAULT 'stopped',
             pid INTEGER,
             guild_count INTEGER DEFAULT 0,
@@ -128,6 +133,24 @@ async def _create_multibot_tables():
             user_id INTEGER PRIMARY KEY,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS bot_config_revisions (
+            bot_id INTEGER PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP)
+    """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS bot_guild_snapshots (
+            bot_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            icon_url TEXT,
+            member_count INTEGER NOT NULL DEFAULT 0,
+            voice_channel_id INTEGER,
+            voice_channel_name TEXT,
+            last_seen_at TEXT NOT NULL,
+            PRIMARY KEY (bot_id, guild_id))
+    """)
     await _db.execute("CREATE INDEX IF NOT EXISTS idx_audit_v2_timestamp ON pronunciation_audit_v2 (timestamp DESC)")
     # SQLite UNIQUE 제약은 NULL을 서로 다른 값으로 취급하므로 (전역 음원 guild_id=NULL 중복 방지)
     # COALESCE 식 인덱스로 유니크를 강제한다
@@ -160,10 +183,18 @@ async def _copy_if_old_exists(old: str, new: str, cols: list[str]):
 
 async def _migrate_existing_data_to_multibot():
     await _create_multibot_tables()
+    bot_columns = await _table_columns("bots")
+    if "desired_state" not in bot_columns:
+        await _db.execute(
+            "ALTER TABLE bots ADD COLUMN desired_state TEXT NOT NULL DEFAULT 'running'"
+        )
     token = os.getenv("DISCORD_TOKEN", "")
     await _db.execute(
         "INSERT OR IGNORE INTO bots (id, name, token, enabled, status) VALUES (1, 'Default Bot', ?, 1, 'stopped')",
         (token,),
+    )
+    await _db.execute(
+        "INSERT OR IGNORE INTO bot_config_revisions (bot_id, revision) SELECT id, 0 FROM bots"
     )
     if token:
         await _db.execute("UPDATE bots SET token = CASE WHEN token = '' THEN ? ELSE token END WHERE id = 1", (token,))
@@ -216,6 +247,121 @@ async def _refresh_cache():
             _guild_keyword_cache.setdefault(row[0], {}).setdefault(row[1], {})[row[2]] = row[3]
 
 
+async def _refresh_bot_cache(bot_id: int):
+    """Reload one bot's process-local caches after another process changes config."""
+    bid = int(bot_id)
+    channels: dict[int, list[int]] = {}
+    async with _db.execute(
+        "SELECT guild_id, channel_id FROM tts_channels_v2 WHERE bot_id = ?", (bid,)
+    ) as cursor:
+        async for guild_id, channel_id in cursor:
+            channels.setdefault(guild_id, []).append(channel_id)
+    _tts_channels_cache[bid] = channels
+
+    global_aliases: dict[str, str] = {}
+    async with _db.execute(
+        "SELECT keyword, replacement FROM global_keyword_aliases_v2 WHERE bot_id = ?", (bid,)
+    ) as cursor:
+        async for keyword, replacement in cursor:
+            global_aliases[keyword] = replacement
+    _global_keyword_cache[bid] = global_aliases
+
+    guild_aliases: dict[int, dict[str, str]] = {}
+    async with _db.execute(
+        "SELECT guild_id, keyword, replacement FROM guild_keyword_aliases_v2 WHERE bot_id = ?", (bid,)
+    ) as cursor:
+        async for guild_id, keyword, replacement in cursor:
+            guild_aliases.setdefault(guild_id, {})[keyword] = replacement
+    _guild_keyword_cache[bid] = guild_aliases
+
+
+async def get_config_revision(bot_id: int | None = None) -> int:
+    bid = _bot_id(bot_id)
+    async with _db.execute(
+        "SELECT revision FROM bot_config_revisions WHERE bot_id = ?", (bid,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+async def _bump_config_revision(bot_id: int) -> None:
+    await _db.execute(
+        """INSERT INTO bot_config_revisions (bot_id, revision, updated_at)
+           VALUES (?, 1, CURRENT_TIMESTAMP)
+           ON CONFLICT(bot_id) DO UPDATE SET
+             revision = revision + 1,
+             updated_at = CURRENT_TIMESTAMP""",
+        (int(bot_id),),
+    )
+
+
+async def refresh_cache_if_changed(known_revision: int, bot_id: int | None = None) -> int:
+    """Refresh local cache when the shared DB revision differs."""
+    bid = _bot_id(bot_id)
+    current_revision = await get_config_revision(bid)
+    if current_revision != int(known_revision):
+        await _refresh_bot_cache(bid)
+    return current_revision
+
+
+async def sync_bot_guild_snapshots(bot_id: int, guilds: list[dict]) -> None:
+    """Replace a worker's Discord guild snapshot atomically enough for dashboard reads."""
+    bid = int(bot_id)
+    seen_ids: list[int] = []
+    now_iso = datetime.now(KST).isoformat()
+    for guild in guilds:
+        guild_id = int(guild["id"])
+        seen_ids.append(guild_id)
+        await _db.execute(
+            """INSERT INTO bot_guild_snapshots
+               (bot_id, guild_id, name, icon_url, member_count, voice_channel_id,
+                voice_channel_name, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(bot_id, guild_id) DO UPDATE SET
+                 name=excluded.name, icon_url=excluded.icon_url,
+                 member_count=excluded.member_count,
+                 voice_channel_id=excluded.voice_channel_id,
+                 voice_channel_name=excluded.voice_channel_name,
+                 last_seen_at=excluded.last_seen_at""",
+            (
+                bid, guild_id, guild["name"], guild.get("icon_url"),
+                int(guild.get("member_count") or 0), guild.get("voice_channel_id"),
+                guild.get("voice_channel_name"), now_iso,
+            ),
+        )
+    if seen_ids:
+        placeholders = ",".join("?" for _ in seen_ids)
+        await _db.execute(
+            f"DELETE FROM bot_guild_snapshots WHERE bot_id = ? AND guild_id NOT IN ({placeholders})",
+            (bid, *seen_ids),
+        )
+    else:
+        await _db.execute("DELETE FROM bot_guild_snapshots WHERE bot_id = ?", (bid,))
+    await _db.commit()
+
+
+async def get_bot_guild_snapshots(bot_id: int) -> list[dict]:
+    async with _db.execute(
+        """SELECT guild_id, name, icon_url, member_count, voice_channel_id,
+                  voice_channel_name, last_seen_at
+           FROM bot_guild_snapshots WHERE bot_id = ? ORDER BY name COLLATE NOCASE""",
+        (int(bot_id),),
+    ) as cursor:
+        return [
+            {
+                "id": row[0], "name": row[1], "icon_url": row[2] or "",
+                "member_count": row[3] or 0, "voice_channel_id": row[4],
+                "voice_channel_name": row[5], "last_seen_at": row[6],
+            }
+            async for row in cursor
+        ]
+
+
+async def get_bot_guild_snapshot(bot_id: int, guild_id: int) -> dict | None:
+    snapshots = await get_bot_guild_snapshots(bot_id)
+    return next((item for item in snapshots if item["id"] == int(guild_id)), None)
+
+
 async def _migrate_from_json():
     json_path = Path(__file__).parent / "tts_channels.json"
     if not json_path.exists():
@@ -231,46 +377,53 @@ async def _migrate_from_json():
 
 
 async def get_bots(include_disabled: bool = True) -> list[dict]:
-    sql = """SELECT id, name, token, discord_bot_user_id, discord_username, enabled, status, pid,
+    sql = """SELECT id, name, discord_bot_user_id, discord_username, enabled, desired_state, status, pid,
                     guild_count, last_started_at, last_stopped_at, last_error, created_by, created_at, updated_at FROM bots"""
     if not include_disabled:
         sql += " WHERE enabled = 1"
     sql += " ORDER BY id ASC"
     async with _db.execute(sql) as cursor:
-        return [{"id": row[0], "name": row[1], "token": row[2], "discord_bot_user_id": row[3],
-                 "discord_username": row[4], "enabled": bool(row[5]), "status": row[6], "pid": row[7],
-                 "guild_count": row[8] or 0, "last_started_at": row[9], "last_stopped_at": row[10],
-                 "last_error": row[11], "created_by": row[12], "created_at": row[13], "updated_at": row[14]}
+        return [{"id": row[0], "name": row[1], "discord_bot_user_id": row[2],
+                 "discord_username": row[3], "enabled": bool(row[4]), "desired_state": row[5],
+                 "status": row[6], "pid": row[7], "guild_count": row[8] or 0,
+                 "last_started_at": row[9], "last_stopped_at": row[10], "last_error": row[11],
+                 "created_by": row[12], "created_at": row[13], "updated_at": row[14]}
                 async for row in cursor]
 
 
 async def get_enabled_bots() -> list[dict]:
-    return await get_bots(include_disabled=False)
+    return [bot for bot in await get_bots(include_disabled=False) if bot["desired_state"] == "running"]
 
 
 async def get_bot(bot_id: int) -> dict | None:
-    async with _db.execute("""SELECT id, name, token, discord_bot_user_id, discord_username, enabled, status, pid,
+    async with _db.execute("""SELECT id, name, discord_bot_user_id, discord_username, enabled, desired_state, status, pid,
                     guild_count, last_started_at, last_stopped_at, last_error, created_by, created_at, updated_at FROM bots WHERE id = ?""", (int(bot_id),)) as cursor:
         row = await cursor.fetchone()
     if not row:
         return None
-    return {"id": row[0], "name": row[1], "token": row[2], "discord_bot_user_id": row[3],
-            "discord_username": row[4], "enabled": bool(row[5]), "status": row[6], "pid": row[7],
-            "guild_count": row[8] or 0, "last_started_at": row[9], "last_stopped_at": row[10],
-            "last_error": row[11], "created_by": row[12], "created_at": row[13], "updated_at": row[14]}
+    return {"id": row[0], "name": row[1], "discord_bot_user_id": row[2],
+            "discord_username": row[3], "enabled": bool(row[4]), "desired_state": row[5],
+            "status": row[6], "pid": row[7], "guild_count": row[8] or 0,
+            "last_started_at": row[9], "last_stopped_at": row[10], "last_error": row[11],
+            "created_by": row[12], "created_at": row[13], "updated_at": row[14]}
 
 
 async def get_bot_token(bot_id: int) -> str | None:
-    bot = await get_bot(bot_id)
-    return bot["token"] if bot else None
+    async with _db.execute("SELECT token FROM bots WHERE id = ?", (int(bot_id),)) as cursor:
+        row = await cursor.fetchone()
+    return row[0] if row else None
 
 
 async def create_bot(name: str, token: str, *, created_by: int | None = None, discord_bot_user_id: int | None = None, discord_username: str | None = None) -> dict | None:
     try:
         cursor = await _db.execute(
-            """INSERT INTO bots (name, token, discord_bot_user_id, discord_username, enabled, status, created_by, updated_at)
-               VALUES (?, ?, ?, ?, 1, 'stopped', ?, CURRENT_TIMESTAMP)""",
+            """INSERT INTO bots (name, token, discord_bot_user_id, discord_username, enabled, desired_state, status, created_by, updated_at)
+               VALUES (?, ?, ?, ?, 1, 'running', 'stopped', ?, CURRENT_TIMESTAMP)""",
             ((name or discord_username or "KYUING Bot").strip(), token, discord_bot_user_id, discord_username, created_by),
+        )
+        await _db.execute(
+            "INSERT INTO bot_config_revisions (bot_id, revision) VALUES (?, 0)",
+            (cursor.lastrowid,),
         )
         await _db.commit()
     except aiosqlite.IntegrityError:
@@ -281,6 +434,17 @@ async def create_bot(name: str, token: str, *, created_by: int | None = None, di
 
 async def set_bot_enabled(bot_id: int, enabled: bool) -> bool:
     cursor = await _db.execute("UPDATE bots SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (1 if enabled else 0, int(bot_id)))
+    await _db.commit()
+    return cursor.rowcount > 0
+
+
+async def set_bot_desired_state(bot_id: int, desired_state: str) -> bool:
+    if desired_state not in {"running", "stopped"}:
+        raise ValueError("desired_state must be running or stopped")
+    cursor = await _db.execute(
+        "UPDATE bots SET desired_state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (desired_state, int(bot_id)),
+    )
     await _db.commit()
     return cursor.rowcount > 0
 
@@ -309,6 +473,7 @@ async def add_tts_channel(guild_id: int, channel_id: int, bot_id: int | None = N
     bid = _bot_id(bot_id)
     try:
         await _db.execute("INSERT INTO tts_channels_v2 (bot_id, guild_id, channel_id) VALUES (?, ?, ?)", (bid, guild_id, channel_id))
+        await _bump_config_revision(bid)
         await _db.commit()
         _tts_channels_cache.setdefault(bid, {}).setdefault(guild_id, []).append(channel_id)
         return True
@@ -319,6 +484,8 @@ async def add_tts_channel(guild_id: int, channel_id: int, bot_id: int | None = N
 async def remove_tts_channel(guild_id: int, channel_id: int, bot_id: int | None = None) -> bool:
     bid = _bot_id(bot_id)
     cursor = await _db.execute("DELETE FROM tts_channels_v2 WHERE bot_id = ? AND guild_id = ? AND channel_id = ?", (bid, guild_id, channel_id))
+    if cursor.rowcount > 0:
+        await _bump_config_revision(bid)
     await _db.commit()
     if cursor.rowcount > 0:
         channels = _tts_channels_cache.get(bid, {}).get(guild_id, [])
@@ -453,6 +620,7 @@ async def add_global_keyword_alias(keyword: str, replacement: str, *, audit_acto
         return False
     if audit_actor is not None:
         await _write_audit(audit_actor, "add", "global", keyword, new_replacement=replacement, bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     _global_keyword_cache.setdefault(bid, {})[keyword] = replacement
     return True
@@ -467,6 +635,7 @@ async def remove_global_keyword_alias(keyword: str, *, audit_actor: int | None =
     await _db.execute("DELETE FROM global_keyword_aliases_v2 WHERE bot_id = ? AND keyword = ?", (bid, keyword))
     if audit_actor is not None:
         await _write_audit(audit_actor, "delete", "global", keyword, old_replacement=existing[0], bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     _global_keyword_cache.get(bid, {}).pop(keyword, None)
     return True
@@ -485,6 +654,7 @@ async def update_global_keyword_alias(original_keyword: str, keyword: str, repla
         return "conflict"
     if audit_actor is not None:
         await _write_audit(audit_actor, "update", "global", keyword, old_keyword=existing[0] if existing[0] != keyword else None, old_replacement=existing[1], new_replacement=replacement, bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     if original_keyword != keyword:
         _global_keyword_cache.get(bid, {}).pop(original_keyword, None)
@@ -513,6 +683,7 @@ async def add_guild_keyword_alias(guild_id: int, keyword: str, replacement: str,
         return False
     if audit_actor is not None:
         await _write_audit(audit_actor, "add", "guild", keyword, guild_id=guild_id, new_replacement=replacement, bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     _guild_keyword_cache.setdefault(bid, {}).setdefault(guild_id, {})[keyword] = replacement
     return True
@@ -527,6 +698,7 @@ async def remove_guild_keyword_alias(guild_id: int, keyword: str, *, audit_actor
     await _db.execute("DELETE FROM guild_keyword_aliases_v2 WHERE bot_id = ? AND guild_id = ? AND keyword = ?", (bid, guild_id, keyword))
     if audit_actor is not None:
         await _write_audit(audit_actor, "delete", "guild", keyword, guild_id=guild_id, old_replacement=existing[0], bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     _guild_keyword_cache.get(bid, {}).get(guild_id, {}).pop(keyword, None)
     return True
@@ -545,6 +717,7 @@ async def update_guild_keyword_alias(guild_id: int, original_keyword: str, keywo
         return "conflict"
     if audit_actor is not None:
         await _write_audit(audit_actor, "update", "guild", keyword, guild_id=guild_id, old_keyword=existing[0] if existing[0] != keyword else None, old_replacement=existing[1], new_replacement=replacement, bot_id=bid)
+    await _bump_config_revision(bid)
     await _db.commit()
     guild_aliases = _guild_keyword_cache.setdefault(bid, {}).setdefault(guild_id, {})
     if original_keyword != keyword:
@@ -573,6 +746,8 @@ async def import_keyword_aliases_batch(rows: list[dict], actor_id: int, bot_id: 
                 skipped += 1
         except aiosqlite.IntegrityError:
             skipped += 1
+    if added:
+        await _bump_config_revision(bid)
     await _db.commit()
     return added, skipped
 

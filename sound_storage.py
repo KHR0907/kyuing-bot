@@ -26,11 +26,18 @@ def sound_path(filename: str, *, bot_id: int) -> Path:
     return Path(SOUNDS_DIR) / str(int(bot_id)) / filename
 
 
-async def _run(*args: str) -> tuple[int, bytes, bytes]:
+async def _run(*args: str, timeout: float = 30.0) -> tuple[int, bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(
         *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    effective_timeout = 10.0 if args and args[0] == "ffprobe" else timeout
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        stderr += b"\nprocess timed out"
+        return 124, stdout, stderr
     return proc.returncode, stdout, stderr
 
 

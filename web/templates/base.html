@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}TTS Bot{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.7/dist/cdn.min.js"></script>
@@ -91,7 +92,10 @@
                 <a href="/" class="rounded-lg px-3 py-2 text-[13px] font-medium text-white/50 transition hover:bg-white/[0.06] hover:text-white/80">대시보드</a>
                 <div class="mx-1 h-4 w-px bg-white/10"></div>
                 <span class="rounded-lg bg-white/[0.04] px-3 py-1.5 text-[13px] font-medium text-white/40">{{ session.get('username', '') }}</span>
-                <a href="/logout" class="rounded-lg px-3 py-2 text-[13px] font-medium text-coral/70 transition hover:bg-coral/10 hover:text-coral">로그아웃</a>
+                <form method="post" action="/logout">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="rounded-lg px-3 py-2 text-[13px] font-medium text-coral/70 transition hover:bg-coral/10 hover:text-coral">로그아웃</button>
+                </form>
             </div>
         </div>
     </nav>

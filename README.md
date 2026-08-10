@@ -6,25 +6,22 @@
 
 ## Current architecture
 
-A fresh installation starts one main bot process and the web dashboard:
+A fresh installation starts a supervisor that owns the dashboard and every Discord bot worker:
 
 ```text
 Docker container: kyuing-bot
-└─ main process: python bot.py
-   ├─ Discord bot #1 from DISCORD_TOKEN
-   └─ Web dashboard on WEB_PORT
+└─ supervisor: python supervisor.py
+   ├─ Web dashboard on WEB_PORT
+   └─ worker: python bot.py --worker --bot-id 1
 ```
 
-Additional bots added in the dashboard are stored in SQLite and started as worker subprocesses inside the same container:
+Additional bots are stored in SQLite and started as the same kind of worker subprocess:
 
 ```text
 Docker container: kyuing-bot
-├─ main process
-│  ├─ Discord bot #1
-│  ├─ Web dashboard
-│  └─ BotProcessManager
-└─ worker process
-   └─ python bot.py --worker --bot-id <BOT_ID> --no-kill-existing
+├─ supervisor + Web dashboard + BotProcessManager
+├─ worker: python bot.py --worker --bot-id 1
+└─ worker: python bot.py --worker --bot-id <BOT_ID>
 ```
 
 Bot tokens are **not** passed as command-line arguments. Workers receive only `--bot-id` and read their token from the database, avoiding token exposure in process listings.
@@ -80,6 +77,10 @@ Included:
 ```text
 bot.py
 bot_process_manager.py
+supervisor.py
+dashboard_context.py
+audio_scheduler.py
+worker_lock.py
 config.py
 database.py
 logging_setup.py
@@ -216,6 +217,7 @@ Edit `.env` and fill in real values.
 Local development example:
 
 ```env
+APP_ENV=production
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_CLIENT_ID=your_discord_client_id
 DISCORD_CLIENT_SECRET=your_discord_client_secret
@@ -275,6 +277,7 @@ If you use a reverse proxy, point it to `127.0.0.1:5001`.
 ## Required environment variables
 
 ```env
+APP_ENV=production
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_CLIENT_ID=your_discord_client_id
 DISCORD_CLIENT_SECRET=your_discord_client_secret
@@ -307,6 +310,15 @@ GOOGLE_TTS_API_KEY=your_google_tts_api_key
 - `SESSION_COOKIE_SECURE`: set `true` behind HTTPS, set `false` for local HTTP testing.
 - `SESSION_COOKIE_SAMESITE`: session cookie SameSite value. `Lax` is the default.
 - `GOOGLE_TTS_API_KEY`: Google Cloud Text-to-Speech API key.
+- `APP_ENV`: use `production` in production and `development` for local testing.
+- `AUDIO_QUEUE_MAXSIZE`: maximum queued audio jobs per guild; defaults to 25.
+- `AUDIO_QUEUE_MAX_PER_USER`: maximum pending jobs per user; defaults to 5.
+- `AUDIO_QUEUE_JOB_TTL_SECONDS`: queued job expiry in seconds; defaults to 60.
+- `TTS_USER_COOLDOWN_SECONDS`: minimum interval between a user's TTS requests; defaults to 2 seconds.
+- `TTS_REQUIRE_VOICE_MEMBERSHIP`: when true, only users in the bot's voice channel can trigger TTS.
+
+With `APP_ENV=production`, startup fails unless OAuth credentials, a 32+ character
+`WEB_SECRET_KEY`, secure session cookies, and at least one `DASHBOARD_ADMIN_IDS` entry are configured.
 
 ## Adding more bots
 
@@ -331,7 +343,9 @@ dashboard metrics
 user settings
 ```
 
-On container restart, enabled bots are automatically started again by `BotProcessManager`.
+On container restart, only enabled bots whose desired state is `running` are started.
+Bots stopped from the dashboard stay stopped. Crashed workers restart with exponential backoff;
+automatic restart pauses after more than five failures in ten minutes.
 
 ## Useful operations
 
@@ -360,6 +374,15 @@ Check container status:
 ```bash
 docker compose ps
 ```
+
+Application readiness check:
+
+```bash
+curl -fsS http://127.0.0.1:${WEB_PORT:-5001}/health/ready
+```
+
+Every bot, including the default bot, runs as an independent supervisor-owned worker and can be
+started, stopped, or restarted from the dashboard.
 
 Run tests locally:
 

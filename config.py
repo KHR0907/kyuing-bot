@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -103,3 +105,32 @@ SOUND_MAX_FILE_BYTES = 20 * 1024 * 1024
 SOUND_MAX_KEYWORD_LENGTH = 50
 SOUND_MAX_PER_GUILD = 100
 SOUNDS_DIR = os.getenv("SOUNDS_DIR", "data/sounds")
+
+# 길드별 음성 작업 큐/남용 방지
+AUDIO_QUEUE_MAXSIZE = int(os.getenv("AUDIO_QUEUE_MAXSIZE", "25"))
+AUDIO_QUEUE_MAX_PER_USER = int(os.getenv("AUDIO_QUEUE_MAX_PER_USER", "5"))
+AUDIO_QUEUE_JOB_TTL_SECONDS = float(os.getenv("AUDIO_QUEUE_JOB_TTL_SECONDS", "60"))
+TTS_USER_COOLDOWN_SECONDS = float(os.getenv("TTS_USER_COOLDOWN_SECONDS", "2"))
+TTS_REQUIRE_VOICE_MEMBERSHIP = _env_flag("TTS_REQUIRE_VOICE_MEMBERSHIP", True)
+AUDIO_JOB_TIMEOUT_SECONDS = float(os.getenv("AUDIO_JOB_TIMEOUT_SECONDS", "120"))
+TTS_SYNTHESIS_TIMEOUT_SECONDS = float(os.getenv("TTS_SYNTHESIS_TIMEOUT_SECONDS", "90"))
+VOICE_CONNECT_TIMEOUT_SECONDS = float(os.getenv("VOICE_CONNECT_TIMEOUT_SECONDS", "15"))
+
+
+def validate_runtime_config() -> None:
+    errors: list[str] = []
+    if not DISCORD_TOKEN.strip():
+        errors.append("DISCORD_TOKEN is required")
+    if SESSION_COOKIE_SAMESITE.lower() not in {"lax", "strict", "none"}:
+        errors.append("SESSION_COOKIE_SAMESITE must be Lax, Strict, or None")
+    if APP_ENV == "production":
+        if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
+            errors.append("Discord OAuth client credentials are required in production")
+        if WEB_SECRET_KEY in {"", "change-me-in-production", "your_random_secret_key_here"} or len(WEB_SECRET_KEY) < 32:
+            errors.append("WEB_SECRET_KEY must be a random value of at least 32 characters")
+        if not SESSION_COOKIE_SECURE:
+            errors.append("SESSION_COOKIE_SECURE must be true in production")
+        if not DASHBOARD_ADMIN_IDS:
+            errors.append("DASHBOARD_ADMIN_IDS must contain a bootstrap administrator in production")
+    if errors:
+        raise RuntimeError("Invalid runtime configuration: " + "; ".join(errors))

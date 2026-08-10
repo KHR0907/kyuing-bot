@@ -6,25 +6,22 @@
 
 ## 현재 아키텍처
 
-신규 설치 직후에는 메인 봇 프로세스와 웹 대시보드가 하나의 컨테이너에서 실행됩니다.
+신규 설치 직후에는 supervisor가 웹 대시보드와 모든 Discord 봇 worker를 관리합니다.
 
 ```text
 Docker container: kyuing-bot
-└─ main process: python bot.py
-   ├─ Discord bot #1 from DISCORD_TOKEN
-   └─ Web dashboard on WEB_PORT
+└─ supervisor: python supervisor.py
+   ├─ Web dashboard on WEB_PORT
+   └─ worker: python bot.py --worker --bot-id 1
 ```
 
-대시보드에서 추가한 봇은 SQLite에 저장되고, 같은 컨테이너 안에서 worker subprocess로 실행됩니다.
+대시보드에서 추가한 봇도 SQLite에 저장되고 같은 방식의 worker subprocess로 실행됩니다.
 
 ```text
 Docker container: kyuing-bot
-├─ main process
-│  ├─ Discord bot #1
-│  ├─ Web dashboard
-│  └─ BotProcessManager
-└─ worker process
-   └─ python bot.py --worker --bot-id <BOT_ID> --no-kill-existing
+├─ supervisor + Web dashboard + BotProcessManager
+├─ worker: python bot.py --worker --bot-id 1
+└─ worker: python bot.py --worker --bot-id <BOT_ID>
 ```
 
 Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만 받고, 토큰은 DB에서 읽습니다. 따라서 프로세스 목록에 토큰이 노출되지 않습니다.
@@ -80,6 +77,10 @@ Bot Token은 명령행 인자로 넘기지 않습니다. worker는 `--bot-id`만
 ```text
 bot.py
 bot_process_manager.py
+supervisor.py
+dashboard_context.py
+audio_scheduler.py
+worker_lock.py
 config.py
 database.py
 logging_setup.py
@@ -216,6 +217,7 @@ cp .env.example .env
 로컬 개발 예시:
 
 ```env
+APP_ENV=production
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_CLIENT_ID=your_discord_client_id
 DISCORD_CLIENT_SECRET=your_discord_client_secret
@@ -275,6 +277,7 @@ reverse proxy를 사용하는 경우 `127.0.0.1:5001`로 proxy하면 됩니다.
 ## 필수 환경 변수
 
 ```env
+APP_ENV=production
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_CLIENT_ID=your_discord_client_id
 DISCORD_CLIENT_SECRET=your_discord_client_secret
@@ -307,6 +310,15 @@ GOOGLE_TTS_API_KEY=your_google_tts_api_key
 - `SESSION_COOKIE_SECURE`: HTTPS 운영에서는 `true`, 로컬 HTTP 테스트에서는 `false`로 둡니다.
 - `SESSION_COOKIE_SAMESITE`: 세션 쿠키 SameSite 값입니다. 기본값은 `Lax`입니다.
 - `GOOGLE_TTS_API_KEY`: Google Cloud Text-to-Speech API Key입니다.
+- `APP_ENV`: 운영에서는 `production`, 로컬 테스트에서는 `development`를 사용합니다.
+- `AUDIO_QUEUE_MAXSIZE`: 서버별 음성 작업 최대 대기 개수입니다. 기본값은 25입니다.
+- `AUDIO_QUEUE_MAX_PER_USER`: 사용자 한 명이 동시에 대기시킬 수 있는 최대 작업 수입니다. 기본값은 5입니다.
+- `AUDIO_QUEUE_JOB_TTL_SECONDS`: 대기 작업 만료 시간입니다. 기본값은 60초입니다.
+- `TTS_USER_COOLDOWN_SECONDS`: 사용자별 TTS 요청 최소 간격입니다. 기본값은 2초입니다.
+- `TTS_REQUIRE_VOICE_MEMBERSHIP`: `true`이면 봇과 같은 음성 채널 사용자만 메시지를 읽을 수 있습니다.
+
+`APP_ENV=production`에서는 OAuth 설정, 32자 이상의 `WEB_SECRET_KEY`, secure session cookie,
+최소 한 명의 `DASHBOARD_ADMIN_IDS`가 없으면 애플리케이션이 시작되지 않습니다.
 
 ## 추가 봇 등록
 
@@ -331,7 +343,9 @@ TTS 채널
 사용자 설정
 ```
 
-컨테이너가 재시작되면 `enabled=1`인 봇들은 `BotProcessManager`가 자동으로 다시 시작합니다.
+컨테이너가 재시작되면 `enabled=1`이고 원하는 상태가 `running`인 봇만 자동으로 다시 시작합니다.
+대시보드에서 Stop한 봇은 컨테이너 재시작 후에도 정지 상태를 유지합니다. 비정상 종료된 워커는
+지수 backoff로 자동 복구하며, 10분 동안 5회를 초과해 실패하면 자동 재시작을 중단합니다.
 
 ## 운영 명령
 
@@ -360,6 +374,15 @@ docker compose logs -f app
 ```bash
 docker compose ps
 ```
+
+애플리케이션 상태 확인:
+
+```bash
+curl -fsS http://127.0.0.1:${WEB_PORT:-5001}/health/ready
+```
+
+기본 봇을 포함한 모든 봇은 supervisor가 독립 worker로 실행하므로 대시보드에서 동일하게
+Start/Stop/Restart할 수 있습니다.
 
 로컬 테스트:
 

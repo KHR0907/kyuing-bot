@@ -1,5 +1,5 @@
 from functools import wraps
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 import aiohttp
 from loguru import logger as log
@@ -16,6 +16,7 @@ from config import (
     SOUND_MAX_FILE_BYTES,
     WEB_SECRET_KEY,
 )
+from web.security import consume_oauth_state, create_oauth_state, init_web_security
 
 DISCORD_API = "https://discord.com/api/v10"
 OAUTH2_URL = "https://discord.com/oauth2/authorize"
@@ -65,7 +66,7 @@ def login_required(f):
 
 
 async def discord_api_get(endpoint: str, token: str):
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
         async with s.get(
             f"{DISCORD_API}{endpoint}",
             headers={"Authorization": f"Bearer {token}"},
@@ -87,9 +88,20 @@ def create_app(bot):
     )
     app.bot = bot
     app.bot_process_manager = None
+    init_web_security(app)
 
     from web.routes import register_routes
     register_routes(app)
+
+    @app.route("/health/live")
+    async def health_live():
+        return {"status": "ok"}
+
+    @app.route("/health/ready")
+    async def health_ready():
+        if not database.is_ready():
+            return {"status": "not_ready"}, 503
+        return {"status": "ok"}
 
     @app.route("/login")
     async def login():
@@ -99,13 +111,15 @@ def create_app(bot):
 
     @app.route("/login/discord")
     async def login_discord():
-        url = (
-            f"{OAUTH2_URL}"
-            f"?client_id={DISCORD_CLIENT_ID}"
-            f"&redirect_uri={quote(DISCORD_REDIRECT_URI, safe='')}"
-            f"&response_type=code"
-            f"&scope=identify"
-        )
+        state = create_oauth_state()
+        query = urlencode({
+            'client_id': DISCORD_CLIENT_ID,
+            'redirect_uri': DISCORD_REDIRECT_URI,
+            'response_type': 'code',
+            'scope': 'identify',
+            'state': state,
+        })
+        url = f"{OAUTH2_URL}?{query}"
         log.debug("OAuth2 redirect: {}", url)
         return redirect(url)
 
@@ -113,6 +127,9 @@ def create_app(bot):
     async def callback():
         code = request.args.get("code")
         error = request.args.get("error")
+        if not consume_oauth_state(request.args.get("state")):
+            log.warning("OAuth2 state 검증 실패")
+            return "유효하지 않거나 만료된 로그인 요청입니다.", 400
 
         if error:
             log.error("OAuth2 에러: {}", error)
@@ -122,7 +139,7 @@ def create_app(bot):
             return redirect(url_for("login"))
 
         try:
-            async with aiohttp.ClientSession() as s:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
                 async with s.post(
                     f"{DISCORD_API}/oauth2/token",
                     data={
@@ -140,7 +157,7 @@ def create_app(bot):
             access_token = token_data.get("access_token")
             if not access_token:
                 log.error("토큰 발급 실패: {}", token_data)
-                return f"토큰 발급 실패: {token_data}", 400
+                return "Discord 인증 토큰 발급에 실패했습니다.", 400
 
             user = await discord_api_get("/users/@me", access_token)
             if not user:
@@ -169,9 +186,9 @@ def create_app(bot):
 
         except Exception as e:
             log.exception("콜백 처리 중 에러")
-            return f"로그인 처리 중 에러: {e}", 500
+            return "로그인 처리 중 오류가 발생했습니다.", 500
 
-    @app.route("/logout")
+    @app.route("/logout", methods=["POST"])
     async def logout():
         session.clear()
         return redirect(url_for("login"))

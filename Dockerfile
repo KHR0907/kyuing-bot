@@ -30,4 +30,4 @@ USER appuser
 
 EXPOSE 5001
 
-CMD ["python", "bot.py"]
+CMD ["python", "supervisor.py"]
