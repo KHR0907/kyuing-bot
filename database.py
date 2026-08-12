@@ -1,6 +1,10 @@
+import asyncio
 import json
 import os
+import sqlite3
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta
+from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -10,6 +14,8 @@ from loguru import logger as log
 from config import DAILY_STATS_RETENTION_DAYS, DATABASE_PATH, DEFAULT_USER_SETTINGS
 
 _db: aiosqlite.Connection | None = None
+_db_access_lock = asyncio.Lock()
+_db_access_depth: ContextVar[int] = ContextVar("db_access_depth", default=0)
 CURRENT_BOT_ID = int(os.getenv("KYUING_BOT_ID", os.getenv("BOT_ID", "1")))
 
 _tts_channels_cache: dict[int, dict[int, list[int]]] = {}
@@ -40,6 +46,38 @@ def _day_key(target_day: date | None = None) -> str:
     if target_day is None:
         target_day = datetime.now(KST).date()
     return target_day.isoformat()
+
+
+def _serialized_db_access(function):
+    """Serialize use of the process-wide connection across async tasks.
+
+    SQLite transactions belong to a connection, not an asyncio task.  Without
+    this gate, a read cursor from one task can overlap a write in another task
+    and leave the shared connection on a stale WAL snapshot.  Nested database
+    API calls remain safe through the context-local depth counter.
+    """
+    @wraps(function)
+    async def wrapper(*args, **kwargs):
+        depth = _db_access_depth.get()
+        if depth:
+            token = _db_access_depth.set(depth + 1)
+            try:
+                return await function(*args, **kwargs)
+            finally:
+                _db_access_depth.reset(token)
+
+        async with _db_access_lock:
+            token = _db_access_depth.set(1)
+            try:
+                return await function(*args, **kwargs)
+            except BaseException:
+                if _db is not None and _db.in_transaction:
+                    await _db.rollback()
+                raise
+            finally:
+                _db_access_depth.reset(token)
+
+    return wrapper
 
 
 async def _table_columns(table: str) -> set[str]:
@@ -305,39 +343,67 @@ async def refresh_cache_if_changed(known_revision: int, bot_id: int | None = Non
 
 
 async def sync_bot_guild_snapshots(bot_id: int, guilds: list[dict]) -> None:
-    """Replace a worker's Discord guild snapshot atomically enough for dashboard reads."""
+    """Replace a worker's Discord guild snapshot in an isolated write transaction.
+
+    Worker processes share the SQLite database, while each process also has a
+    long-lived connection used by unrelated async tasks.  Reusing that connection
+    here can turn a short-lived WAL read snapshot into SQLITE_BUSY_SNAPSHOT when
+    another process commits.  A dedicated connection plus BEGIN IMMEDIATE makes
+    the snapshot transaction start as a writer and guarantees that a failed
+    attempt cannot poison the process-wide connection.
+    """
     bid = int(bot_id)
     seen_ids: list[int] = []
     now_iso = datetime.now(KST).isoformat()
-    for guild in guilds:
-        guild_id = int(guild["id"])
-        seen_ids.append(guild_id)
-        await _db.execute(
-            """INSERT INTO bot_guild_snapshots
-               (bot_id, guild_id, name, icon_url, member_count, voice_channel_id,
-                voice_channel_name, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(bot_id, guild_id) DO UPDATE SET
-                 name=excluded.name, icon_url=excluded.icon_url,
-                 member_count=excluded.member_count,
-                 voice_channel_id=excluded.voice_channel_id,
-                 voice_channel_name=excluded.voice_channel_name,
-                 last_seen_at=excluded.last_seen_at""",
-            (
-                bid, guild_id, guild["name"], guild.get("icon_url"),
-                int(guild.get("member_count") or 0), guild.get("voice_channel_id"),
-                guild.get("voice_channel_name"), now_iso,
-            ),
-        )
-    if seen_ids:
-        placeholders = ",".join("?" for _ in seen_ids)
-        await _db.execute(
-            f"DELETE FROM bot_guild_snapshots WHERE bot_id = ? AND guild_id NOT IN ({placeholders})",
-            (bid, *seen_ids),
-        )
-    else:
-        await _db.execute("DELETE FROM bot_guild_snapshots WHERE bot_id = ?", (bid,))
-    await _db.commit()
+    for attempt in range(3):
+        connection = await aiosqlite.connect(str(DATABASE_PATH))
+        try:
+            await connection.execute("PRAGMA busy_timeout=5000")
+            await connection.execute("BEGIN IMMEDIATE")
+            for guild in guilds:
+                guild_id = int(guild["id"])
+                seen_ids.append(guild_id)
+                await connection.execute(
+                    """INSERT INTO bot_guild_snapshots
+                       (bot_id, guild_id, name, icon_url, member_count, voice_channel_id,
+                        voice_channel_name, last_seen_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(bot_id, guild_id) DO UPDATE SET
+                         name=excluded.name, icon_url=excluded.icon_url,
+                         member_count=excluded.member_count,
+                         voice_channel_id=excluded.voice_channel_id,
+                         voice_channel_name=excluded.voice_channel_name,
+                         last_seen_at=excluded.last_seen_at""",
+                    (
+                        bid, guild_id, guild["name"], guild.get("icon_url"),
+                        int(guild.get("member_count") or 0), guild.get("voice_channel_id"),
+                        guild.get("voice_channel_name"), now_iso,
+                    ),
+                )
+            if seen_ids:
+                placeholders = ",".join("?" for _ in seen_ids)
+                await connection.execute(
+                    f"DELETE FROM bot_guild_snapshots WHERE bot_id = ? AND guild_id NOT IN ({placeholders})",
+                    (bid, *seen_ids),
+                )
+            else:
+                await connection.execute(
+                    "DELETE FROM bot_guild_snapshots WHERE bot_id = ?", (bid,)
+                )
+            await connection.commit()
+            return
+        except aiosqlite.OperationalError as exc:
+            await connection.rollback()
+            error_code = getattr(exc, "sqlite_errorcode", 0)
+            if error_code & 0xFF != sqlite3.SQLITE_BUSY or attempt == 2:
+                raise
+            await asyncio.sleep(0.05 * (2**attempt))
+        except BaseException:
+            await connection.rollback()
+            raise
+        finally:
+            await connection.close()
+            seen_ids.clear()
 
 
 async def get_bot_guild_snapshots(bot_id: int) -> list[dict]:
@@ -478,6 +544,7 @@ async def add_tts_channel(guild_id: int, channel_id: int, bot_id: int | None = N
         _tts_channels_cache.setdefault(bid, {}).setdefault(guild_id, []).append(channel_id)
         return True
     except aiosqlite.IntegrityError:
+        await _db.rollback()
         return False
 
 
@@ -532,6 +599,7 @@ async def add_dashboard_admin(user_id: int) -> bool:
         await _db.commit()
         return True
     except aiosqlite.IntegrityError:
+        await _db.rollback()
         return False
 
 
@@ -576,6 +644,7 @@ async def flush_keyword_hits() -> int:
         await _db.commit()
         return len(pending)
     except Exception:
+        await _db.rollback()
         for k, (cnt, ts) in pending.items():
             existing = _pending_hits.get(k, (0, ts))
             _pending_hits[k] = (existing[0] + cnt, ts)
@@ -980,3 +1049,67 @@ async def remove_sound_by_id(sound_id: int) -> dict | None:
 async def increment_sound_play_count(sound_id: int):
     await _db.execute("UPDATE sounds SET play_count = play_count + 1 WHERE id = ?", (int(sound_id),))
     await _db.commit()
+
+
+# All public APIs using the long-lived connection are serialized per process.
+# Snapshot writes are excluded because they deliberately use an isolated
+# connection and BEGIN IMMEDIATE to coordinate between worker processes.
+_SERIALIZED_DB_APIS = (
+    "get_config_revision",
+    "refresh_cache_if_changed",
+    "get_bot_guild_snapshots",
+    "get_bot_guild_snapshot",
+    "get_bots",
+    "get_enabled_bots",
+    "get_bot",
+    "get_bot_token",
+    "create_bot",
+    "set_bot_enabled",
+    "set_bot_desired_state",
+    "update_bot_runtime_status",
+    "add_tts_channel",
+    "remove_tts_channel",
+    "get_tts_channels",
+    "get_all_tts_channel_count",
+    "get_total_tts_channel_count",
+    "get_tts_channel_counts_by_guild",
+    "get_dashboard_admin_ids",
+    "add_dashboard_admin",
+    "remove_dashboard_admin",
+    "flush_keyword_hits",
+    "get_audit_log",
+    "get_global_keyword_aliases",
+    "add_global_keyword_alias",
+    "remove_global_keyword_alias",
+    "update_global_keyword_alias",
+    "get_guild_keyword_aliases",
+    "get_guild_keyword_aliases_for",
+    "add_guild_keyword_alias",
+    "remove_guild_keyword_alias",
+    "update_guild_keyword_alias",
+    "import_keyword_aliases_batch",
+    "purge_old_daily_stats",
+    "record_daily_snapshot",
+    "increment_daily_tts_requests",
+    "get_daily_stats",
+    "get_recent_daily_stats",
+    "get_dashboard_metrics",
+    "get_project_metrics",
+    "get_user_settings",
+    "set_user_setting",
+    "increment_tts_char_usage",
+    "get_tts_char_usage",
+    "add_sound",
+    "get_sound_by_id",
+    "resolve_sound",
+    "get_global_sounds",
+    "get_guild_sounds",
+    "get_sounds_for_guild",
+    "get_guild_sound_count",
+    "remove_sound",
+    "remove_sound_by_id",
+    "increment_sound_play_count",
+)
+
+for _api_name in _SERIALIZED_DB_APIS:
+    globals()[_api_name] = _serialized_db_access(globals()[_api_name])

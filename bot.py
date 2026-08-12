@@ -72,7 +72,12 @@ async def guild_snapshot_loop(interval_seconds: float = 30.0):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            log.warning("서버 스냅샷 갱신 실패: {}", exc)
+            log.warning(
+                "서버 스냅샷 갱신 실패: {} (sqlite_errorcode={}, sqlite_errorname={})",
+                exc,
+                getattr(exc, "sqlite_errorcode", None),
+                getattr(exc, "sqlite_errorname", None),
+            )
 
 
 async def keyword_hits_flush_loop(interval_seconds: int = 60):

@@ -1,5 +1,6 @@
 import importlib
 import os
+import sqlite3
 import sys
 import types
 
@@ -74,6 +75,87 @@ async def test_tts_channels_are_scoped_by_bot_id(db):
     assert await db.remove_tts_channel(10, 100, bot_id=1) is True
     assert db.get_tts_channels_cached(10, bot_id=1) == []
     assert db.get_tts_channels_cached(10, bot_id=2) == [100]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_tts_channel_rolls_back_transaction(db):
+    assert await db.add_tts_channel(10, 100, bot_id=1) is True
+    assert await db.add_tts_channel(10, 100, bot_id=1) is False
+    assert db._db.in_transaction is False
+
+
+@pytest.mark.asyncio
+async def test_snapshot_sync_isolated_from_stale_primary_read_snapshot(db):
+    await db.sync_bot_guild_snapshots(1, [
+        {"id": 10, "name": "One", "member_count": 3},
+        {"id": 11, "name": "Two", "member_count": 4},
+    ])
+
+    # Keep a read cursor open on the process-wide connection, then commit from
+    # another process-like connection.  Reusing db._db for the following write
+    # would raise SQLITE_BUSY_SNAPSHOT (517) indefinitely without a rollback.
+    stale_cursor = await db._db.execute(
+        "SELECT guild_id FROM bot_guild_snapshots WHERE bot_id = 1 ORDER BY guild_id"
+    )
+    assert await stale_cursor.fetchone() == (10,)
+
+    external = sqlite3.connect(db.DATABASE_PATH)
+    try:
+        external.execute("PRAGMA journal_mode=WAL")
+        external.execute(
+            "UPDATE bot_guild_snapshots SET member_count = 30 WHERE bot_id = 1 AND guild_id = 10"
+        )
+        external.commit()
+
+        with pytest.raises(sqlite3.OperationalError) as exc_info:
+            await db._db.execute(
+                "UPDATE bot_guild_snapshots SET member_count = 4 WHERE bot_id = 1 AND guild_id = 10"
+            )
+        assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_BUSY_SNAPSHOT
+
+        await db.sync_bot_guild_snapshots(1, [
+            {"id": 10, "name": "Recovered", "member_count": 5},
+        ])
+    finally:
+        external.close()
+        await stale_cursor.close()
+        await db._db.rollback()
+
+    snapshots = await db.get_bot_guild_snapshots(1)
+    assert [(row["id"], row["name"], row["member_count"]) for row in snapshots] == [
+        (10, "Recovered", 5),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_public_db_write_rolls_back_busy_snapshot(db):
+    await db.sync_bot_guild_snapshots(1, [
+        {"id": 10, "name": "One", "member_count": 3},
+        {"id": 11, "name": "Two", "member_count": 4},
+    ])
+    stale_cursor = await db._db.execute(
+        "SELECT guild_id FROM bot_guild_snapshots WHERE bot_id = 1 ORDER BY guild_id"
+    )
+    assert await stale_cursor.fetchone() == (10,)
+
+    external = sqlite3.connect(db.DATABASE_PATH)
+    try:
+        external.execute("PRAGMA journal_mode=WAL")
+        external.execute(
+            "UPDATE bot_guild_snapshots SET member_count = 30 WHERE bot_id = 1 AND guild_id = 10"
+        )
+        external.commit()
+
+        with pytest.raises(sqlite3.OperationalError) as exc_info:
+            await db.set_user_setting(123, bot_id=1, speed=1.2)
+        assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_BUSY_SNAPSHOT
+        assert db._db.in_transaction is False
+    finally:
+        external.close()
+        await stale_cursor.close()
+
+    await db.set_user_setting(123, bot_id=1, speed=1.2)
+    assert (await db.get_user_settings(123, bot_id=1))["speed"] == 1.2
 
 
 @pytest.mark.asyncio
